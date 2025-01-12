@@ -145,6 +145,15 @@ pub const JsStatement = union(enum) {
         update: ?JsExpression,
         body: []const JsStatement,
     },
+    for_of_stmt: struct {
+        iterator: []const u8,
+        iterable: JsExpression,
+        body: []const JsStatement,
+    },
+    try_stmt: struct {
+        body: []const JsStatement,
+        catch_body: []const JsStatement,
+    },
     return_stmt: ?JsExpression,
     block: []const JsStatement,
     function_decl: struct {
@@ -241,15 +250,56 @@ pub const JsStatement = union(enum) {
                 return std.fmt.allocPrint(std.heap.page_allocator, "{s}", .{str.items}) catch unreachable;
             },
             .for_stmt => |f| {
-                const init_str = if (f.init) |init| init.toString() else "";
-                const cond_str = if (f.condition) |cond| cond.toString() else "";
-                const update_str = if (f.update) |update| update.toString() else "";
-
                 var str = std.ArrayList(u8).init(std.heap.page_allocator);
                 defer str.deinit();
                 addIndent(&str.writer(), indent) catch unreachable;
-                str.writer().print("for ({s}; {s}; {s}) {{\n", .{ init_str, cond_str, update_str }) catch unreachable;
+                str.writer().writeAll("for (") catch unreachable;
+                if (f.init) |init| {
+                    str.writer().writeAll(init.toString()) catch unreachable;
+                }
+                str.writer().writeAll("; ") catch unreachable;
+                if (f.condition) |cond| {
+                    str.writer().writeAll(cond.toString()) catch unreachable;
+                }
+                str.writer().writeAll("; ") catch unreachable;
+                if (f.update) |update| {
+                    str.writer().writeAll(update.toString()) catch unreachable;
+                }
+                str.writer().writeAll(") {\n") catch unreachable;
                 for (f.body) |stmt| {
+                    const stmt_str = stmt.toStringWithIndent(indent + 1);
+                    str.writer().print("{s}\n", .{stmt_str}) catch unreachable;
+                }
+                addIndent(&str.writer(), indent) catch unreachable;
+                str.writer().writeAll("}") catch unreachable;
+                return std.fmt.allocPrint(std.heap.page_allocator, "{s}", .{str.items}) catch unreachable;
+            },
+            .for_of_stmt => |f| {
+                const iterable = f.iterable.toString();
+                var str = std.ArrayList(u8).init(std.heap.page_allocator);
+                defer str.deinit();
+                addIndent(&str.writer(), indent) catch unreachable;
+                str.writer().print("for (const {s} of {s}) {{\n", .{ f.iterator, iterable }) catch unreachable;
+                for (f.body) |stmt| {
+                    const stmt_str = stmt.toStringWithIndent(indent + 1);
+                    str.writer().print("{s}\n", .{stmt_str}) catch unreachable;
+                }
+                addIndent(&str.writer(), indent) catch unreachable;
+                str.writer().writeAll("}") catch unreachable;
+                return std.fmt.allocPrint(std.heap.page_allocator, "{s}", .{str.items}) catch unreachable;
+            },
+            .try_stmt => |t| {
+                var str = std.ArrayList(u8).init(std.heap.page_allocator);
+                defer str.deinit();
+                addIndent(&str.writer(), indent) catch unreachable;
+                str.writer().writeAll("try {\n") catch unreachable;
+                for (t.body) |stmt| {
+                    const stmt_str = stmt.toStringWithIndent(indent + 1);
+                    str.writer().print("{s}\n", .{stmt_str}) catch unreachable;
+                }
+                addIndent(&str.writer(), indent) catch unreachable;
+                str.writer().writeAll("} catch (error) {\n") catch unreachable;
+                for (t.catch_body) |stmt| {
                     const stmt_str = stmt.toStringWithIndent(indent + 1);
                     str.writer().print("{s}\n", .{stmt_str}) catch unreachable;
                 }

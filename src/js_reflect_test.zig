@@ -42,6 +42,46 @@ fn testWhileLoop() void {
     }
 }
 
+fn testMultipleElements() void {
+    const items = [_][]const u8{ "one", "two", "three" };
+    const list = dom.querySelector("#list");
+
+    for (items) |item| {
+        const li = dom.querySelector("li");
+        _ = dom.setInnerText(li, item);
+        _ = dom.addEventListener(list, "click", "handleListClick");
+    }
+}
+
+fn testComplexDom() void {
+    const form = dom.querySelector("#myForm");
+    const input = dom.querySelector("#myInput");
+    const output = dom.querySelector("#output");
+
+    _ = dom.addEventListener(form, "submit", "handleSubmit");
+    _ = dom.addEventListener(input, "input", "handleInput");
+
+    if (std.mem.eql(u8, dom.getInnerText(input).toString(), "")) {
+        _ = dom.setInnerText(output, "Please enter something");
+    } else {
+        _ = dom.setInnerText(output, "Input received: " ++ dom.getInnerText(input).toString());
+    }
+}
+
+fn testErrorHandling() void {
+    const result = dom.querySelector("#result");
+
+    if (std.fmt.parseInt(i32, dom.getInnerText(result).toString(), 10)) |value| {
+        if (value < 0) {
+            _ = dom.setInnerText(result, "Error: negative number");
+        } else {
+            _ = dom.setInnerText(result, "Valid number");
+        }
+    } else |_| {
+        _ = dom.setInnerText(result, "Error: not a number");
+    }
+}
+
 test "handleClick function reflection" {
     const js_ast = js_reflect.toJs(testHandleClick, "handleClick");
     const js_code = js_ast.toString();
@@ -100,8 +140,69 @@ test "while loop reflection" {
         \\  const counter = document.querySelector("#counter");
         \\  let count = parseInt.call(undefined, counter.innerText, 10);
         \\  while (count < 10) {
-        \\    count += 1;
+        \\    count = count + 1;
         \\    counter.innerText = count.toString();
+        \\  }
+        \\}
+        \\
+    ;
+    try std.testing.expectEqualStrings(expected, js_code);
+}
+
+test "multiple elements reflection" {
+    const js_ast = js_reflect.toJs(testMultipleElements, "testMultipleElements");
+    const js_code = js_ast.toString();
+    const expected =
+        \\function testMultipleElements() {
+        \\  const items = ["one", "two", "three"];
+        \\  const list = document.querySelector("#list");
+        \\  for (const item of items) {
+        \\    const li = document.querySelector("li");
+        \\    li.innerText = item;
+        \\    list.addEventListener("click", handleListClick);
+        \\  }
+        \\}
+        \\
+    ;
+    try std.testing.expectEqualStrings(expected, js_code);
+}
+
+test "complex DOM manipulation reflection" {
+    const js_ast = js_reflect.toJs(testComplexDom, "testComplexDom");
+    const js_code = js_ast.toString();
+    const expected =
+        \\function testComplexDom() {
+        \\  const form = document.querySelector("#myForm");
+        \\  const input = document.querySelector("#myInput");
+        \\  const output = document.querySelector("#output");
+        \\  form.addEventListener("submit", handleSubmit);
+        \\  input.addEventListener("input", handleInput);
+        \\  if (input.innerText === "") {
+        \\    output.innerText = "Please enter something";
+        \\  } else {
+        \\    output.innerText = "Input received: " + input.innerText;
+        \\  }
+        \\}
+        \\
+    ;
+    try std.testing.expectEqualStrings(expected, js_code);
+}
+
+test "error handling reflection" {
+    const js_ast = js_reflect.toJs(testErrorHandling, "testErrorHandling");
+    const js_code = js_ast.toString();
+    const expected =
+        \\function testErrorHandling() {
+        \\  const result = document.querySelector("#result");
+        \\  try {
+        \\    const value = parseInt.call(undefined, result.innerText, 10);
+        \\    if (value < 0) {
+        \\      result.innerText = "Error: negative number";
+        \\    } else {
+        \\      result.innerText = "Valid number";
+        \\    }
+        \\  } catch (error) {
+        \\    result.innerText = "Error: not a number";
         \\  }
         \\}
         \\

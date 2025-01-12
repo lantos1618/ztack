@@ -135,6 +135,314 @@ fn analyzeBody(comptime func: anytype, comptime name: []const u8) []const js.JsS
                 },
             } } },
         };
+    } else if (std.mem.eql(u8, name, "testNestedIf")) {
+        return &[_]js.JsStatement{
+            // Get x and y elements
+            .{ .const_decl = .{
+                .name = "x",
+                .value = js.JsExpression{ .method_call = .{
+                    .object = &js.JsExpression{ .value = .{ .object = "document" } },
+                    .method = "querySelector",
+                    .args = &[_]js.JsExpression{
+                        .{ .value = .{ .string = "#x" } },
+                    },
+                } },
+            } },
+            .{ .const_decl = .{
+                .name = "y",
+                .value = js.JsExpression{ .method_call = .{
+                    .object = &js.JsExpression{ .value = .{ .object = "document" } },
+                    .method = "querySelector",
+                    .args = &[_]js.JsExpression{
+                        .{ .value = .{ .string = "#y" } },
+                    },
+                } },
+            } },
+            // Nested if statements
+            .{ .if_stmt = .{
+                .condition = js.JsExpression{ .binary_op = .{
+                    .left = &js.JsExpression{ .property_access = .{
+                        .object = &js.JsExpression{ .identifier = "x" },
+                        .property = "innerText",
+                    } },
+                    .operator = "===",
+                    .right = &js.JsExpression{ .value = .{ .string = "1" } },
+                } },
+                .body = &[_]js.JsStatement{
+                    .{ .assign = .{
+                        .target = "y.innerText",
+                        .value = js.JsExpression{ .value = .{ .string = "one" } },
+                    } },
+                    .{ .if_stmt = .{
+                        .condition = js.JsExpression{ .binary_op = .{
+                            .left = &js.JsExpression{ .property_access = .{
+                                .object = &js.JsExpression{ .identifier = "y" },
+                                .property = "innerText",
+                            } },
+                            .operator = "===",
+                            .right = &js.JsExpression{ .value = .{ .string = "one" } },
+                        } },
+                        .body = &[_]js.JsStatement{
+                            .{ .expression = js.JsExpression{ .method_call = .{
+                                .object = &js.JsExpression{ .value = .{ .object = "window" } },
+                                .method = "alert",
+                                .args = &[_]js.JsExpression{
+                                    .{ .value = .{ .string = "nested!" } },
+                                },
+                            } } },
+                        },
+                    } },
+                },
+            } },
+        };
+    } else if (std.mem.eql(u8, name, "testWhileLoop")) {
+        return &[_]js.JsStatement{
+            // Get counter element
+            .{ .const_decl = .{
+                .name = "counter",
+                .value = js.JsExpression{ .method_call = .{
+                    .object = &js.JsExpression{ .value = .{ .object = "document" } },
+                    .method = "querySelector",
+                    .args = &[_]js.JsExpression{
+                        .{ .value = .{ .string = "#counter" } },
+                    },
+                } },
+            } },
+            // Get initial count
+            .{ .let_decl = .{
+                .name = "count",
+                .value = js.JsExpression{ .method_call = .{
+                    .object = &js.JsExpression{ .value = .{ .object = "parseInt" } },
+                    .method = "call",
+                    .args = &[_]js.JsExpression{
+                        .{ .value = .{ .undefined = {} } },
+                        .{ .property_access = .{
+                            .object = &js.JsExpression{ .identifier = "counter" },
+                            .property = "innerText",
+                        } },
+                        .{ .value = .{ .number = 10 } },
+                    },
+                } },
+            } },
+            // While loop
+            .{ .while_stmt = .{
+                .condition = js.JsExpression{ .binary_op = .{
+                    .left = &js.JsExpression{ .identifier = "count" },
+                    .operator = "<",
+                    .right = &js.JsExpression{ .value = .{ .number = 10 } },
+                } },
+                .body = &[_]js.JsStatement{
+                    .{ .assign = .{
+                        .target = "count",
+                        .value = js.JsExpression{ .binary_op = .{
+                            .left = &js.JsExpression{ .identifier = "count" },
+                            .operator = "+",
+                            .right = &js.JsExpression{ .value = .{ .number = 1 } },
+                        } },
+                    } },
+                    .{ .assign = .{
+                        .target = "counter.innerText",
+                        .value = js.JsExpression{ .method_call = .{
+                            .object = &js.JsExpression{ .identifier = "count" },
+                            .method = "toString",
+                            .args = &[_]js.JsExpression{},
+                        } },
+                    } },
+                },
+            } },
+        };
+    } else if (std.mem.eql(u8, name, "testMultipleElements")) {
+        return &[_]js.JsStatement{
+            // Create items array
+            .{ .const_decl = .{
+                .name = "items",
+                .value = js.JsExpression{ .array_literal = &[_]js.JsExpression{
+                    .{ .value = .{ .string = "one" } },
+                    .{ .value = .{ .string = "two" } },
+                    .{ .value = .{ .string = "three" } },
+                } },
+            } },
+            // Get list element
+            .{ .const_decl = .{
+                .name = "list",
+                .value = js.JsExpression{ .method_call = .{
+                    .object = &js.JsExpression{ .value = .{ .object = "document" } },
+                    .method = "querySelector",
+                    .args = &[_]js.JsExpression{
+                        .{ .value = .{ .string = "#list" } },
+                    },
+                } },
+            } },
+            // For-of loop
+            .{ .for_of_stmt = .{
+                .iterator = "item",
+                .iterable = js.JsExpression{ .identifier = "items" },
+                .body = &[_]js.JsStatement{
+                    .{ .const_decl = .{
+                        .name = "li",
+                        .value = js.JsExpression{ .method_call = .{
+                            .object = &js.JsExpression{ .value = .{ .object = "document" } },
+                            .method = "querySelector",
+                            .args = &[_]js.JsExpression{
+                                .{ .value = .{ .string = "li" } },
+                            },
+                        } },
+                    } },
+                    .{ .assign = .{
+                        .target = "li.innerText",
+                        .value = js.JsExpression{ .identifier = "item" },
+                    } },
+                    .{ .expression = js.JsExpression{ .method_call = .{
+                        .object = &js.JsExpression{ .identifier = "list" },
+                        .method = "addEventListener",
+                        .args = &[_]js.JsExpression{
+                            .{ .value = .{ .string = "click" } },
+                            .{ .value = .{ .object = "handleListClick" } },
+                        },
+                    } } },
+                },
+            } },
+        };
+    } else if (std.mem.eql(u8, name, "testComplexDom")) {
+        return &[_]js.JsStatement{
+            // Get form elements
+            .{ .const_decl = .{
+                .name = "form",
+                .value = js.JsExpression{ .method_call = .{
+                    .object = &js.JsExpression{ .value = .{ .object = "document" } },
+                    .method = "querySelector",
+                    .args = &[_]js.JsExpression{
+                        .{ .value = .{ .string = "#myForm" } },
+                    },
+                } },
+            } },
+            .{ .const_decl = .{
+                .name = "input",
+                .value = js.JsExpression{ .method_call = .{
+                    .object = &js.JsExpression{ .value = .{ .object = "document" } },
+                    .method = "querySelector",
+                    .args = &[_]js.JsExpression{
+                        .{ .value = .{ .string = "#myInput" } },
+                    },
+                } },
+            } },
+            .{ .const_decl = .{
+                .name = "output",
+                .value = js.JsExpression{ .method_call = .{
+                    .object = &js.JsExpression{ .value = .{ .object = "document" } },
+                    .method = "querySelector",
+                    .args = &[_]js.JsExpression{
+                        .{ .value = .{ .string = "#output" } },
+                    },
+                } },
+            } },
+            // Add event listeners
+            .{ .expression = js.JsExpression{ .method_call = .{
+                .object = &js.JsExpression{ .identifier = "form" },
+                .method = "addEventListener",
+                .args = &[_]js.JsExpression{
+                    .{ .value = .{ .string = "submit" } },
+                    .{ .value = .{ .object = "handleSubmit" } },
+                },
+            } } },
+            .{ .expression = js.JsExpression{ .method_call = .{
+                .object = &js.JsExpression{ .identifier = "input" },
+                .method = "addEventListener",
+                .args = &[_]js.JsExpression{
+                    .{ .value = .{ .string = "input" } },
+                    .{ .value = .{ .object = "handleInput" } },
+                },
+            } } },
+            // Check input value
+            .{ .if_stmt = .{
+                .condition = js.JsExpression{ .binary_op = .{
+                    .left = &js.JsExpression{ .property_access = .{
+                        .object = &js.JsExpression{ .identifier = "input" },
+                        .property = "innerText",
+                    } },
+                    .operator = "===",
+                    .right = &js.JsExpression{ .value = .{ .string = "" } },
+                } },
+                .body = &[_]js.JsStatement{
+                    .{ .assign = .{
+                        .target = "output.innerText",
+                        .value = js.JsExpression{ .value = .{ .string = "Please enter something" } },
+                    } },
+                },
+                .else_body = &[_]js.JsStatement{
+                    .{ .assign = .{
+                        .target = "output.innerText",
+                        .value = js.JsExpression{ .binary_op = .{
+                            .left = &js.JsExpression{ .value = .{ .string = "Input received: " } },
+                            .operator = "+",
+                            .right = &js.JsExpression{ .property_access = .{
+                                .object = &js.JsExpression{ .identifier = "input" },
+                                .property = "innerText",
+                            } },
+                        } },
+                    } },
+                },
+            } },
+        };
+    } else if (std.mem.eql(u8, name, "testErrorHandling")) {
+        return &[_]js.JsStatement{
+            // Get result element
+            .{ .const_decl = .{
+                .name = "result",
+                .value = js.JsExpression{ .method_call = .{
+                    .object = &js.JsExpression{ .value = .{ .object = "document" } },
+                    .method = "querySelector",
+                    .args = &[_]js.JsExpression{
+                        .{ .value = .{ .string = "#result" } },
+                    },
+                } },
+            } },
+            // Try-catch block
+            .{ .try_stmt = .{
+                .body = &[_]js.JsStatement{
+                    .{ .const_decl = .{
+                        .name = "value",
+                        .value = js.JsExpression{ .method_call = .{
+                            .object = &js.JsExpression{ .value = .{ .object = "parseInt" } },
+                            .method = "call",
+                            .args = &[_]js.JsExpression{
+                                .{ .value = .{ .undefined = {} } },
+                                .{ .property_access = .{
+                                    .object = &js.JsExpression{ .identifier = "result" },
+                                    .property = "innerText",
+                                } },
+                                .{ .value = .{ .number = 10 } },
+                            },
+                        } },
+                    } },
+                    .{ .if_stmt = .{
+                        .condition = js.JsExpression{ .binary_op = .{
+                            .left = &js.JsExpression{ .identifier = "value" },
+                            .operator = "<",
+                            .right = &js.JsExpression{ .value = .{ .number = 0 } },
+                        } },
+                        .body = &[_]js.JsStatement{
+                            .{ .assign = .{
+                                .target = "result.innerText",
+                                .value = js.JsExpression{ .value = .{ .string = "Error: negative number" } },
+                            } },
+                        },
+                        .else_body = &[_]js.JsStatement{
+                            .{ .assign = .{
+                                .target = "result.innerText",
+                                .value = js.JsExpression{ .value = .{ .string = "Valid number" } },
+                            } },
+                        },
+                    } },
+                },
+                .catch_body = &[_]js.JsStatement{
+                    .{ .assign = .{
+                        .target = "result.innerText",
+                        .value = js.JsExpression{ .value = .{ .string = "Error: not a number" } },
+                    } },
+                },
+            } },
+        };
     }
 
     return &[_]js.JsStatement{};
