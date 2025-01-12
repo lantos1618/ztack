@@ -30,14 +30,28 @@ pub const Element = union(enum) {
     text: []const u8,
     div: Container,
     h1: Container,
+    h2: Container,
     script: Script,
     meta: Meta,
     title: Container,
+    input: Input,
+    button: Button,
+    p: Container,
+    span: Container,
+    a: Anchor,
 
     pub const Container = struct {
         children: []const Element = &.{},
         class: ?[]const u8 = null,
         id: ?[]const u8 = null,
+    };
+
+    pub const Anchor = struct {
+        children: []const Element = &.{},
+        class: ?[]const u8 = null,
+        id: ?[]const u8 = null,
+        href: []const u8,
+        onclick: ?[]const u8 = null,
     };
 
     pub const Script = struct {
@@ -48,6 +62,20 @@ pub const Element = union(enum) {
 
     pub const Meta = struct {
         charset: []const u8,
+    };
+
+    pub const Input = struct {
+        type: []const u8,
+        id: ?[]const u8 = null,
+        class: ?[]const u8 = null,
+        value: ?[]const u8 = null,
+    };
+
+    pub const Button = struct {
+        children: []const Element = &.{},
+        class: ?[]const u8 = null,
+        id: ?[]const u8 = null,
+        onclick: ?*const fn () void = null,
     };
 
     // Helper functions
@@ -68,6 +96,10 @@ pub const Element = union(enum) {
 
     pub fn h1(class: ?[]const u8, children: []const Element) Element {
         return .{ .h1 = .{ .class = class, .children = children } };
+    }
+
+    pub fn h2(class: ?[]const u8, children: []const Element) Element {
+        return .{ .h2 = .{ .class = class, .children = children } };
     }
 
     pub fn script(src_or_content: []const u8, is_src: bool) Element {
@@ -140,6 +172,20 @@ pub const Element = union(enum) {
                 try writer.writeByteNTimes(' ', indent);
                 try writer.writeAll("</h1>");
             },
+            .h2 => |h| {
+                try writer.writeByteNTimes(' ', indent);
+                if (h.class) |class| {
+                    try writer.print("<h2 class=\"{s}\">\n", .{class});
+                } else {
+                    try writer.writeAll("<h2>\n");
+                }
+                for (h.children) |child| {
+                    try child.toString(writer, indent + 2);
+                    try writer.writeByte('\n');
+                }
+                try writer.writeByteNTimes(' ', indent);
+                try writer.writeAll("</h2>");
+            },
             .script => |s| {
                 try writer.writeByteNTimes(' ', indent);
                 if (s.src) |src| {
@@ -174,6 +220,100 @@ pub const Element = union(enum) {
                 }
                 try writer.writeByteNTimes(' ', indent);
                 try writer.writeAll("</title>");
+            },
+            .input => |i| {
+                try writer.writeByteNTimes(' ', indent);
+                try writer.writeAll("<input");
+                try writer.print(" type=\"{s}\"", .{i.type});
+                if (i.id) |id| {
+                    try writer.print(" id=\"{s}\"", .{id});
+                }
+                if (i.class) |class| {
+                    try writer.print(" class=\"{s}\"", .{class});
+                }
+                if (i.value) |value| {
+                    try writer.print(" value=\"{s}\"", .{value});
+                }
+                try writer.writeAll(">");
+            },
+            .button => |b| {
+                try writer.writeByteNTimes(' ', indent);
+                try writer.writeAll("<button");
+                if (b.class) |class| {
+                    try writer.print(" class=\"{s}\"", .{class});
+                }
+                if (b.id) |id| {
+                    try writer.print(" id=\"{s}\"", .{id});
+                }
+                if (b.onclick) |onclick| {
+                    const js_reflect = @import("js_reflect.zig");
+                    const handler_name = js_reflect.getFunctionName(onclick);
+                    try writer.print(" onclick=\"{s}()\"", .{handler_name});
+                }
+                try writer.writeAll(">\n");
+                for (b.children) |child| {
+                    try child.toString(writer, indent + 2);
+                    try writer.writeByte('\n');
+                }
+                try writer.writeByteNTimes(' ', indent);
+                try writer.writeAll("</button>");
+            },
+            .p => |p| {
+                try writer.writeByteNTimes(' ', indent);
+                try writer.writeAll("<p");
+                if (p.class) |class| {
+                    try writer.print(" class=\"{s}\"", .{class});
+                }
+                if (p.id) |id| {
+                    try writer.print(" id=\"{s}\"", .{id});
+                }
+                try writer.writeAll(">\n");
+                for (p.children) |child| {
+                    try child.toString(writer, indent + 2);
+                    try writer.writeByte('\n');
+                }
+                try writer.writeByteNTimes(' ', indent);
+                try writer.writeAll("</p>");
+            },
+            .span => |s| {
+                try writer.writeByteNTimes(' ', indent);
+                try writer.writeAll("<span");
+                if (s.class) |class| {
+                    try writer.print(" class=\"{s}\"", .{class});
+                }
+                if (s.id) |id| {
+                    try writer.print(" id=\"{s}\"", .{id});
+                }
+                try writer.writeAll(">\n");
+                for (s.children) |child| {
+                    try child.toString(writer, indent + 2);
+                    try writer.writeByte('\n');
+                }
+                try writer.writeByteNTimes(' ', indent);
+                try writer.writeAll("</span>");
+            },
+            .a => |a| {
+                try writer.writeByteNTimes(' ', indent);
+                try writer.writeAll("<a");
+                if (a.class) |class| {
+                    try writer.print(" class=\"{s}\"", .{class});
+                }
+                if (a.id) |id| {
+                    try writer.print(" id=\"{s}\"", .{id});
+                }
+                try writer.print(" href=\"{s}\"", .{a.href});
+                if (a.onclick) |onclick| {
+                    const js_reflect = @import("js_reflect.zig");
+                    const handler_name = js_reflect.getFunctionName(onclick);
+                    try writer.print(" onclick=\"{s}()\"", .{handler_name});
+                }
+                try writer.writeAll(">\n");
+                for (a.children) |child| {
+                    try child.toString(writer, indent + 2);
+                    try writer.writeByte('\n');
+                }
+                try writer.writeByteNTimes(' ', indent);
+                try writer.writeAll("</a>");
             },
         }
     }

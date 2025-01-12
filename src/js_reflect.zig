@@ -1,6 +1,6 @@
 const std = @import("std");
-const dom = @import("dom.zig");
-const js = @import("js_gen.zig");
+const dom = @import("dom");
+const js = @import("js_gen");
 
 /// Convert a Zig function to JavaScript AST
 pub fn toJs(comptime func: anytype, comptime name: []const u8) js.JsStatement {
