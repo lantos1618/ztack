@@ -6,6 +6,26 @@ pub const JsFunction = struct {
     body: []const u8,
 };
 
+pub const Event = struct {
+    pub const Type = enum {
+        click,
+        DOMContentLoaded,
+        submit,
+        input,
+        change,
+    };
+
+    pub fn toString(event_type: Type) []const u8 {
+        return switch (event_type) {
+            .click => "click",
+            .DOMContentLoaded => "DOMContentLoaded",
+            .submit => "submit",
+            .input => "input",
+            .change => "change",
+        };
+    }
+};
+
 pub const Element = union(enum) {
     text: []const u8,
     div: Container,

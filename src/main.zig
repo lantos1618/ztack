@@ -2,6 +2,7 @@ const std = @import("std");
 const HtmlDocument = @import("html.zig").HtmlDocument;
 const html = @import("html.zig").Element;
 const JsFunction = @import("html.zig").JsFunction;
+const dom = @import("dom.zig");
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -16,22 +17,34 @@ pub fn main() !void {
         html.script("https://cdn.tailwindcss.com", true),
     };
 
+    // Create type-safe DOM elements
+    const title_element = dom.Document.querySelector("h1");
+    const counter_element = dom.Document.getElementById("counter");
+
+    // Create click handler in Zig
+    var click_handler = dom.DomFunction.init(allocator, "handleClick");
+    defer click_handler.deinit();
+
+    try click_handler.addStatement("let count = parseInt(document.querySelector('#counter').innerText) || 0");
+    try click_handler.addStatement("count++");
+    try click_handler.addStatement(counter_element.setInnerText("count.toString()"));
+    try click_handler.addStatement(
+        \\if (count === 10) { alert('You reached 10 clicks!'); }
+    );
+
+    // Create setup function in Zig
+    var setup_function = dom.DomFunction.init(allocator, "setupListeners");
+    defer setup_function.deinit();
+    try setup_function.addStatement(title_element.addEventListener(dom.Event.Type.click, "handleClick"));
+
     const js_functions = [_]JsFunction{
-        .{
-            .name = "handleClick",
-            .args = &[_][]const u8{"event"},
-            .body = "alert('Hello from Zig-generated JavaScript!');",
-        },
-        .{
-            .name = "setupListeners",
-            .args = &[_][]const u8{},
-            .body =
-            \\const h1 = document.querySelector('h1');
-            \\h1.addEventListener('click', handleClick);
-            \\console.log('Listeners set up!');
-            ,
-        },
+        click_handler.toJs(),
+        setup_function.toJs(),
     };
+    defer {
+        allocator.free(js_functions[0].body);
+        allocator.free(js_functions[1].body);
+    }
 
     const body_elements = [_]html{
         html.div(
@@ -39,11 +52,17 @@ pub fn main() !void {
             &[_]html{
                 html.h1(
                     "text-4xl font-bold mb-4 cursor-pointer",
-                    &[_]html{html.text("Click me!")},
+                    &[_]html{html.text("Click me to count!")},
                 ),
                 html.div(
-                    "bg-gray-100 p-4 rounded",
-                    &[_]html{html.text("Welcome to my website!")},
+                    "text-2xl font-bold mt-4",
+                    &[_]html{
+                        html.text("Count: "),
+                        html.div(
+                            null,
+                            &[_]html{html.text("0")},
+                        ),
+                    },
                 ),
                 html.scriptWithFunctions(&js_functions),
                 html.script(
