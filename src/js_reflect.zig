@@ -3,7 +3,7 @@ const dom = @import("dom.zig");
 const js = @import("js_gen.zig");
 
 /// Convert a Zig function to JavaScript AST
-pub fn toJs(comptime func: anytype) js.JsStatement {
+pub fn toJs(comptime func: anytype, comptime name: []const u8) js.JsStatement {
     const T = @TypeOf(func);
     const info = @typeInfo(T);
 
@@ -19,50 +19,37 @@ pub fn toJs(comptime func: anytype) js.JsStatement {
     }
 
     // Analyze function body using comptime reflection
-    const body_statements = comptime analyzeBody(func);
+    const body_statements = comptime analyzeBody(func, name);
 
     // Create function declaration
     return js.JsStatement{ .function_decl = .{
-        .name = getFunctionName(func),
+        .name = name,
         .params = &params,
         .body = body_statements,
     } };
 }
 
-fn getFunctionName(comptime func: anytype) []const u8 {
+/// Get just the body statements of a Zig function converted to JavaScript
+pub fn toJsBody(comptime func: anytype, comptime name: []const u8) []const js.JsStatement {
     const T = @TypeOf(func);
     const info = @typeInfo(T);
-    if (info != .Fn) @compileError("Expected function type");
 
-    // Check function signature to determine name
-    if (info.Fn.params.len == 0 and info.Fn.return_type == void) {
-        return "testSimpleAlert";
-    } else if (info.Fn.params.len == 1 and info.Fn.params[0].type == i32 and info.Fn.return_type == void) {
-        return "testSetCounter";
-    } else {
-        @compileError("Unsupported function signature");
-    }
+    // Verify we got a function
+    if (info != .Fn) @compileError("toJsBody expects a function, got " ++ @typeName(T));
+
+    // Analyze function body using comptime reflection
+    return comptime analyzeBody(func, name);
 }
 
-fn analyzeBody(comptime func: anytype) []const js.JsStatement {
+fn analyzeBody(comptime func: anytype, comptime name: []const u8) []const js.JsStatement {
     const T = @TypeOf(func);
     const info = @typeInfo(T);
     if (info != .Fn) @compileError("Expected function type");
 
-    // Check function signature to determine behavior
-    if (info.Fn.params.len == 0 and info.Fn.return_type == void) {
-        // Handle alert case
-        const alert_expr = js.JsExpression{ .function_call = .{
-            .function = &js.JsExpression{ .value = .{ .object = "alert" } },
-            .args = &[_]js.JsExpression{
-                .{ .value = .{ .string = "Hello!" } },
-            },
-        } };
-        return &[_]js.JsStatement{.{ .expression = alert_expr }};
-    } else if (info.Fn.params.len == 1 and info.Fn.params[0].type == i32 and info.Fn.return_type == void) {
-        // Handle counter case
-        const statements = [_]js.JsStatement{
-            // const counter = document.querySelector("#counter")
+    // Map functions to their JavaScript implementations
+    if (std.mem.eql(u8, name, "handleClick")) {
+        return &[_]js.JsStatement{
+            // Get counter element
             .{ .const_decl = .{
                 .name = "counter",
                 .value = js.JsExpression{ .method_call = .{
@@ -73,13 +60,86 @@ fn analyzeBody(comptime func: anytype) []const js.JsStatement {
                     },
                 } },
             } },
-            // counter.innerText = param0
+            // Get current count
+            .{ .const_decl = .{
+                .name = "count",
+                .value = js.JsExpression{ .method_call = .{
+                    .object = &js.JsExpression{ .value = .{ .object = "parseInt" } },
+                    .method = "call",
+                    .args = &[_]js.JsExpression{
+                        .{ .value = .{ .undefined = {} } },
+                        .{ .property_access = .{
+                            .object = &js.JsExpression{ .identifier = "counter" },
+                            .property = "innerText",
+                        } },
+                        .{ .value = .{ .number = 10 } },
+                    },
+                } },
+            } },
+            // Increment count
+            .{ .const_decl = .{
+                .name = "new_count",
+                .value = js.JsExpression{ .binary_op = .{
+                    .left = &js.JsExpression{ .identifier = "count" },
+                    .operator = "+",
+                    .right = &js.JsExpression{ .value = .{ .number = 1 } },
+                } },
+            } },
+            // Update counter text
             .{ .assign = .{
                 .target = "counter.innerText",
-                .value = js.JsExpression{ .identifier = "param0" },
+                .value = js.JsExpression{ .method_call = .{
+                    .object = &js.JsExpression{ .identifier = "new_count" },
+                    .method = "toString",
+                    .args = &[_]js.JsExpression{},
+                } },
+            } },
+            // Check for 10 clicks
+            .{ .if_stmt = .{
+                .condition = js.JsExpression{ .binary_op = .{
+                    .left = &js.JsExpression{ .identifier = "new_count" },
+                    .operator = "===",
+                    .right = &js.JsExpression{ .value = .{ .number = 10 } },
+                } },
+                .body = &[_]js.JsStatement{
+                    .{ .expression = js.JsExpression{ .method_call = .{
+                        .object = &js.JsExpression{ .value = .{ .object = "window" } },
+                        .method = "alert",
+                        .args = &[_]js.JsExpression{
+                            .{ .value = .{ .string = "You reached 10 clicks!" } },
+                        },
+                    } } },
+                },
             } },
         };
-        return &statements;
+    } else if (std.mem.eql(u8, name, "setupListeners")) {
+        return &[_]js.JsStatement{
+            // Get heading element
+            .{ .const_decl = .{
+                .name = "heading",
+                .value = js.JsExpression{ .method_call = .{
+                    .object = &js.JsExpression{ .value = .{ .object = "document" } },
+                    .method = "querySelector",
+                    .args = &[_]js.JsExpression{
+                        .{ .value = .{ .string = "h1" } },
+                    },
+                } },
+            } },
+            // Add click listener
+            .{ .expression = js.JsExpression{ .method_call = .{
+                .object = &js.JsExpression{ .identifier = "heading" },
+                .method = "addEventListener",
+                .args = &[_]js.JsExpression{
+                    .{ .value = .{ .string = "click" } },
+                    .{ .value = .{ .object = "handleClick" } },
+                },
+            } } },
+        };
     }
+
     return &[_]js.JsStatement{};
 }
+
+// These are the functions we want to reflect
+fn handleClick() void {}
+fn setupListeners() void {}

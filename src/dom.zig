@@ -37,6 +37,13 @@ pub fn setInnerText(element: js.JsExpression, text: []const u8) js.JsExpression 
     } };
 }
 
+pub fn getInnerText(element: js.JsExpression) js.JsExpression {
+    return .{ .property_access = .{
+        .object = &element,
+        .property = "innerText",
+    } };
+}
+
 pub fn setInnerHtml(element: js.JsExpression, html: []const u8) js.JsExpression {
     return .{ .assign = .{
         .target = std.fmt.allocPrint(std.heap.page_allocator, "{s}.innerHTML", .{element.toString()}) catch unreachable,
@@ -72,3 +79,15 @@ pub const EventType = enum {
         };
     }
 };
+
+pub fn parseInt(str: []const u8, radix: u8) js.JsExpression {
+    return .{ .method_call = .{
+        .object = &js.JsExpression{ .value = .{ .object = "parseInt" } },
+        .method = "call",
+        .args = &[_]js.JsExpression{
+            .{ .value = .{ .undefined = {} } },
+            .{ .value = .{ .string = str } },
+            .{ .value = .{ .number = radix } },
+        },
+    } };
+}

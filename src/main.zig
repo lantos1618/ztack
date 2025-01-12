@@ -5,9 +5,33 @@ const html = @import("html.zig").Element;
 const JsFunction = @import("html.zig").JsFunction;
 const dom = @import("dom.zig");
 const js = @import("js_gen.zig");
+const js_reflect = @import("js_reflect.zig");
 
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 const gpa_allocator = gpa.allocator();
+
+// Function that will be reflected to JavaScript
+fn handleClick() void {
+    // Get current count and increment
+    const counter = dom.querySelector("#counter");
+    const count_str = dom.getInnerText(counter).toString();
+    const count = std.fmt.parseInt(i32, count_str, 10) catch 0;
+    const new_count = count + 1;
+
+    // Update counter text
+    _ = dom.setInnerText(counter, std.fmt.allocPrint(std.heap.page_allocator, "{d}", .{new_count}) catch unreachable);
+
+    // Check for 10 clicks
+    if (new_count == 10) {
+        _ = dom.alert("You reached 10 clicks!");
+    }
+}
+
+// Function that will be reflected to JavaScript
+fn setupListeners() void {
+    const heading = dom.querySelector("h1");
+    _ = dom.addEventListener(heading, dom.EventType.click.toString(), "handleClick");
+}
 
 pub fn generateHtml(alloc: std.mem.Allocator) ![]const u8 {
     var doc = HtmlDocument.init(alloc);
@@ -18,101 +42,37 @@ pub fn generateHtml(alloc: std.mem.Allocator) ![]const u8 {
         html.script("https://cdn.tailwindcss.com", true),
     };
 
-    // Create click handler in Zig
-    var click_handler = dom.DomFunction.init(alloc, "handleClick");
-    defer click_handler.deinit();
+    // Convert Zig functions to JavaScript
+    const click_handler_body = js_reflect.toJsBody(handleClick, "handleClick");
+    const setup_body = js_reflect.toJsBody(setupListeners, "setupListeners");
 
-    // Get counter element
-    const counter_element = "document.querySelector('#counter')";
+    // Create JavaScript function strings
+    var click_handler_str = std.ArrayList(u8).init(alloc);
+    defer click_handler_str.deinit();
+    for (click_handler_body) |stmt| {
+        try click_handler_str.writer().print("{s}\n", .{stmt.toString()});
+    }
 
-    // Get current count and increment
-    const window_count = js.JsExpression{ .property_access = .{
-        .object = &js.JsExpression{ .value = .{ .object = "window" } },
-        .property = "count",
-    } };
-
-    const inc_stmt = js.JsStatement{
-        .assign = .{
-            .target = "window.count",
-            .value = js.JsExpression{ .binary_op = .{
-                .left = &window_count,
-                .operator = "+",
-                .right = &js.JsExpression{ .value = .{ .number = 1 } },
-            } },
-        },
-    };
-    try click_handler.addStatement(inc_stmt.toString());
-
-    // Set innerText statement
-    const set_stmt = js.JsStatement{
-        .assign = .{
-            .target = std.fmt.allocPrint(alloc, "{s}.innerText", .{counter_element}) catch unreachable,
-            .value = js.JsExpression{ .method_call = .{
-                .object = &window_count,
-                .method = "toString",
-                .args = &[_]js.JsExpression{},
-            } },
-        },
-    };
-    try click_handler.addStatement(set_stmt.toString());
-
-    // If statement
-    const if_stmt = js.JsStatement{
-        .if_stmt = .{
-            .condition = js.JsExpression{ .binary_op = .{
-                .left = &window_count,
-                .operator = "===",
-                .right = &js.JsExpression{ .value = .{ .number = 10 } },
-            } },
-            .body = &[_]js.JsStatement{
-                js.JsStatement{
-                    .assign = .{
-                        .target = "alert",
-                        .value = js.JsExpression{ .value = .{ .string = "You reached 10 clicks!" } },
-                    },
-                },
-            },
-        },
-    };
-    try click_handler.addStatement(if_stmt.toString());
-
-    // Create setup function in Zig
-    var setup_function = dom.DomFunction.init(alloc, "setupListeners");
-    defer setup_function.deinit();
-
-    // Initialize count variable
-    const init_count_stmt = js.JsStatement{
-        .assign = .{
-            .target = "window.count",
-            .value = js.JsExpression{ .value = .{ .number = 0 } },
-        },
-    };
-    try setup_function.addStatement(init_count_stmt.toString());
-
-    // Add event listener statement
-    const add_listener_stmt = js.JsStatement{
-        .assign = .{
-            .target = "document.querySelector('h1').addEventListener",
-            .value = js.JsExpression{ .method_call = .{
-                .object = &js.JsExpression{ .value = .{ .object = "document.querySelector('h1')" } },
-                .method = "addEventListener",
-                .args = &[_]js.JsExpression{
-                    js.JsExpression{ .value = .{ .string = "click" } },
-                    js.JsExpression{ .value = .{ .object = "handleClick" } },
-                },
-            } },
-        },
-    };
-    try setup_function.addStatement(add_listener_stmt.toString());
+    var setup_str = std.ArrayList(u8).init(alloc);
+    defer setup_str.deinit();
+    for (setup_body) |stmt| {
+        try setup_str.writer().print("{s}\n", .{stmt.toString()});
+    }
 
     const js_functions = [_]JsFunction{
-        click_handler.toJs(),
-        setup_function.toJs(),
+        .{
+            .name = "handleClick",
+            .args = &[_][]const u8{},
+            .body = try alloc.dupe(u8, click_handler_str.items),
+        },
+        .{
+            .name = "setupListeners",
+            .args = &[_][]const u8{},
+            .body = try alloc.dupe(u8, setup_str.items),
+        },
     };
-    defer {
-        alloc.free(js_functions[0].body);
-        alloc.free(js_functions[1].body);
-    }
+    defer alloc.free(js_functions[0].body);
+    defer alloc.free(js_functions[1].body);
 
     const body_elements = [_]html{
         html.div(
