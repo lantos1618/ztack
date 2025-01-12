@@ -4,11 +4,12 @@ const HtmlDocument = @import("html.zig").HtmlDocument;
 const html = @import("html.zig").Element;
 const JsFunction = @import("html.zig").JsFunction;
 const dom = @import("dom.zig");
+const js = @import("js_gen.zig");
 
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 const gpa_allocator = gpa.allocator();
 
-fn generateHtml(alloc: std.mem.Allocator) ![]const u8 {
+pub fn generateHtml(alloc: std.mem.Allocator) ![]const u8 {
     var doc = HtmlDocument.init(alloc);
 
     const head_elements = [_]html{
@@ -21,19 +22,88 @@ fn generateHtml(alloc: std.mem.Allocator) ![]const u8 {
     var click_handler = dom.DomFunction.init(alloc, "handleClick");
     defer click_handler.deinit();
 
-    try click_handler.addStatement(
-        \\let count = parseInt(document.querySelector('#counter').innerText) || 0;
-        \\count++;
-        \\document.querySelector('#counter').innerText = count.toString();
-        \\if (count === 10) { alert('You reached 10 clicks!'); }
-    );
+    // Get counter element
+    const counter_element = "document.querySelector('#counter')";
+
+    // Get current count and increment
+    const window_count = js.JsExpression{ .property_access = .{
+        .object = &js.JsExpression{ .value = .{ .object = "window" } },
+        .property = "count",
+    } };
+
+    const inc_stmt = js.JsStatement{
+        .assign = .{
+            .target = "window.count",
+            .value = js.JsExpression{ .binary_op = .{
+                .left = &window_count,
+                .operator = "+",
+                .right = &js.JsExpression{ .value = .{ .number = 1 } },
+            } },
+        },
+    };
+    try click_handler.addStatement(inc_stmt.toString());
+
+    // Set innerText statement
+    const set_stmt = js.JsStatement{
+        .assign = .{
+            .target = std.fmt.allocPrint(alloc, "{s}.innerText", .{counter_element}) catch unreachable,
+            .value = js.JsExpression{ .method_call = .{
+                .object = &window_count,
+                .method = "toString",
+                .args = &[_]js.JsExpression{},
+            } },
+        },
+    };
+    try click_handler.addStatement(set_stmt.toString());
+
+    // If statement
+    const if_stmt = js.JsStatement{
+        .if_stmt = .{
+            .condition = js.JsExpression{ .binary_op = .{
+                .left = &window_count,
+                .operator = "===",
+                .right = &js.JsExpression{ .value = .{ .number = 10 } },
+            } },
+            .body = &[_]js.JsStatement{
+                js.JsStatement{
+                    .assign = .{
+                        .target = "alert",
+                        .value = js.JsExpression{ .value = .{ .string = "You reached 10 clicks!" } },
+                    },
+                },
+            },
+        },
+    };
+    try click_handler.addStatement(if_stmt.toString());
 
     // Create setup function in Zig
     var setup_function = dom.DomFunction.init(alloc, "setupListeners");
     defer setup_function.deinit();
-    try setup_function.addStatement(
-        \\document.querySelector('h1').addEventListener('click', handleClick);
-    );
+
+    // Initialize count variable
+    const init_count_stmt = js.JsStatement{
+        .assign = .{
+            .target = "window.count",
+            .value = js.JsExpression{ .value = .{ .number = 0 } },
+        },
+    };
+    try setup_function.addStatement(init_count_stmt.toString());
+
+    // Add event listener statement
+    const add_listener_stmt = js.JsStatement{
+        .assign = .{
+            .target = "document.querySelector('h1').addEventListener",
+            .value = js.JsExpression{ .method_call = .{
+                .object = &js.JsExpression{ .value = .{ .object = "document.querySelector('h1')" } },
+                .method = "addEventListener",
+                .args = &[_]js.JsExpression{
+                    js.JsExpression{ .value = .{ .string = "click" } },
+                    js.JsExpression{ .value = .{ .object = "handleClick" } },
+                },
+            } },
+        },
+    };
+    try setup_function.addStatement(add_listener_stmt.toString());
 
     const js_functions = [_]JsFunction{
         click_handler.toJs(),
@@ -116,11 +186,4 @@ pub fn main() !void {
         .threads = 2,
         .workers = 2,
     });
-}
-
-test "simple test" {
-    var list = std.ArrayList(i32).init(std.testing.allocator);
-    defer list.deinit(); // try commenting this out and see if zig detects the memory leak!
-    try list.append(42);
-    try std.testing.expectEqual(@as(i32, 42), list.pop());
 }

@@ -6,34 +6,71 @@ pub const Value = union(enum) {
     boolean: bool,
     null,
     undefined,
+    function_ref: []const u8,
+    property_get: struct {
+        object: []const u8,
+        property: []const u8,
+    },
+    property_set: struct {
+        object: []const u8,
+        property: []const u8,
+        value: *const Value,
+    },
     method_call: struct {
         object: []const u8,
         method: []const u8,
         args: []const Value,
     },
 
-    pub fn toString(self: Value) []const u8 {
+    pub fn toString(self: Value, allocator: std.mem.Allocator) ![]const u8 {
         switch (self) {
-            .number => |n| return std.fmt.allocPrint(std.heap.page_allocator, "{d}", .{n}) catch unreachable,
-            .string => |s| return std.fmt.allocPrint(std.heap.page_allocator, "\"{s}\"", .{s}) catch unreachable,
-            .boolean => |b| return if (b) "true" else "false",
-            .null => return "null",
-            .undefined => return "undefined",
+            .number => |n| return try std.fmt.allocPrint(allocator, "{d}", .{n}),
+            .string => |s| return try std.fmt.allocPrint(allocator, "\"{s}\"", .{s}),
+            .boolean => |b| return try allocator.dupe(u8, if (b) "true" else "false"),
+            .null => return try allocator.dupe(u8, "null"),
+            .undefined => return try allocator.dupe(u8, "undefined"),
+            .function_ref => |f| return try allocator.dupe(u8, f),
+            .property_get => |p| {
+                var list = std.ArrayList(u8).init(allocator);
+                errdefer list.deinit();
+
+                try list.writer().writeAll(p.object);
+                try list.writer().writeAll(".");
+                try list.writer().writeAll(p.property);
+
+                return try allocator.dupe(u8, list.items);
+            },
+            .property_set => |p| {
+                var list = std.ArrayList(u8).init(allocator);
+                errdefer list.deinit();
+
+                try list.writer().writeAll(p.object);
+                try list.writer().writeAll(".");
+                try list.writer().writeAll(p.property);
+                try list.writer().writeAll(" = ");
+                const value_str = try p.value.toString(allocator);
+                defer allocator.free(value_str);
+                try list.writer().writeAll(value_str);
+
+                return try allocator.dupe(u8, list.items);
+            },
             .method_call => |m| {
-                var list = std.ArrayList(u8).init(std.heap.page_allocator);
-                defer list.deinit();
+                var list = std.ArrayList(u8).init(allocator);
+                errdefer list.deinit();
 
-                list.writer().writeAll(m.object) catch unreachable;
-                list.writer().writeAll(".") catch unreachable;
-                list.writer().writeAll(m.method) catch unreachable;
-                list.writer().writeAll("(") catch unreachable;
+                try list.writer().writeAll(m.object);
+                try list.writer().writeAll(".");
+                try list.writer().writeAll(m.method);
+                try list.writer().writeAll("(");
                 for (m.args, 0..) |arg, i| {
-                    if (i > 0) list.writer().writeAll(", ") catch unreachable;
-                    list.writer().writeAll(arg.toString()) catch unreachable;
+                    if (i > 0) try list.writer().writeAll(", ");
+                    const arg_str = try arg.toString(allocator);
+                    defer allocator.free(arg_str);
+                    try list.writer().writeAll(arg_str);
                 }
-                list.writer().writeAll(")") catch unreachable;
+                try list.writer().writeAll(")");
 
-                return std.heap.page_allocator.dupe(u8, list.items) catch unreachable;
+                return try allocator.dupe(u8, list.items);
             },
         }
     }
@@ -47,79 +84,101 @@ pub const Statement = union(enum) {
     call: struct { target: []const u8, args: []const Value },
     method_call: struct { object: []const u8, method: []const u8, args: []const Value },
 
-    pub fn toString(self: Statement, writer: anytype) !void {
+    pub fn toString(self: Statement, allocator: std.mem.Allocator) ![]const u8 {
+        var list = std.ArrayList(u8).init(allocator);
+        errdefer list.deinit();
+
         switch (self) {
             .let => |l| {
-                try writer.writeAll("let ");
-                try writer.writeAll(l.name);
-                try writer.writeAll(" = ");
-                try writer.writeAll(l.value.toString());
-                try writer.writeAll(";");
+                try list.writer().writeAll("let ");
+                try list.writer().writeAll(l.name);
+                try list.writer().writeAll(" = ");
+                const value_str = try l.value.toString(allocator);
+                defer allocator.free(value_str);
+                try list.writer().writeAll(value_str);
+                try list.writer().writeAll(";");
             },
             .assign => |a| {
-                try writer.writeAll(a.target);
-                try writer.writeAll(" = ");
-                try writer.writeAll(a.value.toString());
-                try writer.writeAll(";");
+                try list.writer().writeAll(a.target);
+                try list.writer().writeAll(" = ");
+                const value_str = try a.value.toString(allocator);
+                defer allocator.free(value_str);
+                try list.writer().writeAll(value_str);
+                try list.writer().writeAll(";");
             },
             .increment => |i| {
-                try writer.writeAll(i);
-                try writer.writeAll("++;");
+                try list.writer().writeAll(i);
+                try list.writer().writeAll("++;");
             },
             .if_stmt => |i| {
-                try writer.writeAll("if (");
-                try writer.writeAll(i.condition.toString());
-                try writer.writeAll(") {\n");
+                try list.writer().writeAll("if (");
+                const cond_str = try i.condition.toString(allocator);
+                defer allocator.free(cond_str);
+                try list.writer().writeAll(cond_str);
+                try list.writer().writeAll(") {\n");
                 for (i.body) |stmt| {
-                    try writer.writeAll("  ");
-                    try stmt.toString(writer);
-                    try writer.writeAll("\n");
+                    try list.writer().writeAll("  ");
+                    const stmt_str = try stmt.toString(allocator);
+                    defer allocator.free(stmt_str);
+                    try list.writer().writeAll(stmt_str);
+                    try list.writer().writeAll("\n");
                 }
-                try writer.writeAll("}");
+                try list.writer().writeAll("}");
             },
             .call => |c| {
-                try writer.writeAll(c.target);
-                try writer.writeAll("(");
+                try list.writer().writeAll(c.target);
+                try list.writer().writeAll("(");
                 for (c.args, 0..) |arg, i| {
-                    if (i > 0) try writer.writeAll(", ");
-                    try writer.writeAll(arg.toString());
+                    if (i > 0) try list.writer().writeAll(", ");
+                    const arg_str = try arg.toString(allocator);
+                    defer allocator.free(arg_str);
+                    try list.writer().writeAll(arg_str);
                 }
-                try writer.writeAll(");");
+                try list.writer().writeAll(");");
             },
             .method_call => |m| {
-                try writer.writeAll(m.object);
-                try writer.writeAll(".");
-                try writer.writeAll(m.method);
-                try writer.writeAll("(");
+                try list.writer().writeAll(m.object);
+                try list.writer().writeAll(".");
+                try list.writer().writeAll(m.method);
+                try list.writer().writeAll("(");
                 for (m.args, 0..) |arg, i| {
-                    if (i > 0) try writer.writeAll(", ");
-                    try writer.writeAll(arg.toString());
+                    if (i > 0) try list.writer().writeAll(", ");
+                    const arg_str = try arg.toString(allocator);
+                    defer allocator.free(arg_str);
+                    try list.writer().writeAll(arg_str);
                 }
-                try writer.writeAll(");");
+                try list.writer().writeAll(");");
             },
         }
+
+        return try allocator.dupe(u8, list.items);
     }
 };
 
 pub const Condition = union(enum) {
     equals: struct { left: Value, right: Value },
 
-    pub fn toString(self: Condition) []const u8 {
-        var list = std.ArrayList(u8).init(std.heap.page_allocator);
-        defer list.deinit();
+    pub fn toString(self: Condition, allocator: std.mem.Allocator) ![]const u8 {
+        var list = std.ArrayList(u8).init(allocator);
+        errdefer list.deinit();
 
         switch (self) {
             .equals => |e| {
-                list.writer().writeAll(e.left.toString()) catch unreachable;
-                list.writer().writeAll(" === ") catch unreachable;
-                list.writer().writeAll(e.right.toString()) catch unreachable;
+                const left_str = try e.left.toString(allocator);
+                defer allocator.free(left_str);
+                try list.writer().writeAll(left_str);
+                try list.writer().writeAll(" === ");
+                const right_str = try e.right.toString(allocator);
+                defer allocator.free(right_str);
+                try list.writer().writeAll(right_str);
             },
         }
 
-        return std.heap.page_allocator.dupe(u8, list.items) catch unreachable;
+        return try allocator.dupe(u8, list.items);
     }
 };
 
+// Helper functions
 pub fn parseInt(target: []const u8) Value {
     return .{ .method_call = .{
         .object = "parseInt",
@@ -133,18 +192,16 @@ pub fn querySelector(selector: []const u8) []const u8 {
 }
 
 pub fn getInnerText(element: []const u8) Value {
-    return .{ .method_call = .{
+    return .{ .property_get = .{
         .object = element,
-        .method = "innerText",
-        .args = &[_]Value{},
+        .property = "innerText",
     } };
 }
 
 pub fn setInnerText(element: []const u8, value: Value) Statement {
-    return .{ .method_call = .{
-        .object = element,
-        .method = "innerText",
-        .args = &[_]Value{value},
+    return .{ .assign = .{
+        .target = std.fmt.allocPrint(std.heap.page_allocator, "{s}.innerText", .{element}) catch unreachable,
+        .value = value,
     } };
 }
 
