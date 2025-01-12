@@ -4,6 +4,7 @@ const js_gen = @import("js_gen");
 const js_reflect = @import("js_reflect");
 const dom = @import("dom");
 const zap = @import("zap");
+const js = @import("js");
 
 // Function that will be reflected to JavaScript
 fn handleClick() void {
@@ -30,6 +31,11 @@ fn handleClick() void {
 fn setupListeners() void {
     const button = dom.querySelector("#clickButton");
     _ = dom.addEventListener(button, dom.EventType.click.toString(), "handleClick");
+}
+
+// Function that will be reflected to JavaScript
+fn initPage() void {
+    _ = setupListeners();
 }
 
 pub fn generateHtml(allocator: std.mem.Allocator) ![]const u8 {
@@ -71,9 +77,15 @@ pub fn generateHtml(allocator: std.mem.Allocator) ![]const u8 {
             .args = &[_][]const u8{},
             .body = try allocator.dupe(u8, setup_str.items),
         },
+        .{
+            .name = "initPage",
+            .args = &[_][]const u8{},
+            .body = try allocator.dupe(u8, js_reflect.toJsBody(initPage, "initPage")),
+        },
     };
     defer allocator.free(js_functions[0].body);
     defer allocator.free(js_functions[1].body);
+    defer allocator.free(js_functions[2].body);
 
     const body_elements = [_]html.Element{
         html.Element.div(
@@ -152,11 +164,18 @@ pub fn generateHtml(allocator: std.mem.Allocator) ![]const u8 {
                     },
                 ),
                 html.Element.scriptWithFunctions(&js_functions),
-                html.Element.script(
-                    \\document.addEventListener('DOMContentLoaded', () => {
-                    \\  setupListeners();
-                    \\});
-                , false),
+                html.Element.script(js.generateJs(.{
+                    .statements = &[_]js.JsStatement{
+                        .{ .method_call = .{
+                            .object = .{ .identifier = "document" },
+                            .method = "addEventListener",
+                            .args = &[_]js.JsExpression{
+                                .{ .value = .{ .string = "DOMContentLoaded" } },
+                                .{ .identifier = "initPage" },
+                            },
+                        } },
+                    },
+                }), false),
             },
         ),
     };
