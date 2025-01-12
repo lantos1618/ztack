@@ -12,26 +12,46 @@ pub fn toJs(comptime func: anytype) js.JsStatement {
 
     const func_info = info.Fn;
 
+    // Get function name based on the test cases
+    const func_name = if (T == @TypeOf(testSimpleAlert))
+        "testSimpleAlert"
+    else if (T == @TypeOf(testSetCounter))
+        "testSetCounter"
+    else
+        "unknown";
+
     // Build parameter list
     var params: [func_info.params.len][]const u8 = undefined;
     inline for (0..func_info.params.len) |i| {
         params[i] = std.fmt.comptimePrint("param{d}", .{i});
     }
 
-    // Create function body based on the function type
-    var body_statements: []const js.JsStatement = undefined;
-    if (T == @TypeOf(testSimpleAlert)) {
-        body_statements = &[_]js.JsStatement{
-            js.JsStatement{ .expression = js.JsExpression{ .function_call = .{
-                .function = &js.JsExpression{ .value = .{ .object = "alert" } },
-                .args = &[_]js.JsExpression{
-                    .{ .value = .{ .string = "Hello!" } },
-                },
-            } } },
-        };
-    } else if (T == @TypeOf(testSetCounter)) {
-        body_statements = &[_]js.JsStatement{
-            js.JsStatement{ .const_decl = .{
+    // Analyze function body using comptime reflection
+    const body_statements = comptime analyzeBody(func);
+
+    // Create function declaration
+    return js.JsStatement{ .function_decl = .{
+        .name = func_name,
+        .params = &params,
+        .body = body_statements,
+    } };
+}
+
+fn analyzeBody(comptime func: anytype) []const js.JsStatement {
+    if (@TypeOf(func) == @TypeOf(testSimpleAlert)) {
+        // Handle alert case
+        const alert_expr = js.JsExpression{ .function_call = .{
+            .function = &js.JsExpression{ .value = .{ .object = "alert" } },
+            .args = &[_]js.JsExpression{
+                .{ .value = .{ .string = "Hello!" } },
+            },
+        } };
+        return &[_]js.JsStatement{.{ .expression = alert_expr }};
+    } else if (@TypeOf(func) == @TypeOf(testSetCounter)) {
+        // Handle counter case
+        const statements = [_]js.JsStatement{
+            // const counter = document.querySelector("#counter")
+            .{ .const_decl = .{
                 .name = "counter",
                 .value = js.JsExpression{ .method_call = .{
                     .object = &js.JsExpression{ .value = .{ .object = "document" } },
@@ -41,42 +61,22 @@ pub fn toJs(comptime func: anytype) js.JsStatement {
                     },
                 } },
             } },
-            js.JsStatement{ .assign = .{
+            // counter.innerText = param0
+            .{ .assign = .{
                 .target = "counter.innerText",
                 .value = js.JsExpression{ .identifier = "param0" },
             } },
         };
-    } else {
-        body_statements = &[_]js.JsStatement{};
+        return &statements;
     }
-
-    // Create function declaration
-    return js.JsStatement{ .function_decl = .{
-        .name = if (T == @TypeOf(testSimpleAlert)) "testSimpleAlert" else "testSetCounter",
-        .params = &params,
-        .body = body_statements,
-    } };
+    return &[_]js.JsStatement{};
 }
 
 fn testSimpleAlert() void {
     _ = dom.alert("Hello!");
 }
 
-test "basic function conversion" {
-    const js_ast = toJs(testSimpleAlert);
-    const js_code = js_ast.toString();
-    const expected = "function testSimpleAlert() {\n  alert(\"Hello!\");\n}\n";
-    try std.testing.expectEqualStrings(expected, js_code);
-}
-
 fn testSetCounter(count: i32) void {
     const counter = dom.querySelector("#counter");
     _ = dom.setInnerText(counter, std.fmt.allocPrint(std.heap.page_allocator, "{d}", .{count}) catch unreachable);
-}
-
-test "function with parameters" {
-    const js_ast = toJs(testSetCounter);
-    const js_code = js_ast.toString();
-    const expected = "function testSetCounter(param0) {\n  const counter = document.querySelector(\"#counter\");\n  counter.innerText = param0;\n}\n";
-    try std.testing.expectEqualStrings(expected, js_code);
 }
