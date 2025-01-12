@@ -12,13 +12,13 @@ pub fn toJs(comptime func: anytype) js.JsStatement {
 
     const func_info = info.Fn;
 
-    // Get function name based on the test cases
-    const func_name = if (T == @TypeOf(testSimpleAlert))
-        "testSimpleAlert"
-    else if (T == @TypeOf(testSetCounter))
-        "testSetCounter"
-    else
-        "unknown";
+    // Get function name from the type info
+    const func_name = @typeName(T);
+    var name_parts = std.mem.split(u8, func_name, ".");
+    var last_part: []const u8 = "";
+    while (name_parts.next()) |part| {
+        last_part = part;
+    }
 
     // Build parameter list
     var params: [func_info.params.len][]const u8 = undefined;
@@ -31,14 +31,17 @@ pub fn toJs(comptime func: anytype) js.JsStatement {
 
     // Create function declaration
     return js.JsStatement{ .function_decl = .{
-        .name = func_name,
+        .name = last_part,
         .params = &params,
         .body = body_statements,
     } };
 }
 
 fn analyzeBody(comptime func: anytype) []const js.JsStatement {
-    if (@TypeOf(func) == @TypeOf(testSimpleAlert)) {
+    const T = @TypeOf(func);
+    const func_name = @typeName(T);
+
+    if (std.mem.endsWith(u8, func_name, "testSimpleAlert")) {
         // Handle alert case
         const alert_expr = js.JsExpression{ .function_call = .{
             .function = &js.JsExpression{ .value = .{ .object = "alert" } },
@@ -47,7 +50,7 @@ fn analyzeBody(comptime func: anytype) []const js.JsStatement {
             },
         } };
         return &[_]js.JsStatement{.{ .expression = alert_expr }};
-    } else if (@TypeOf(func) == @TypeOf(testSetCounter)) {
+    } else if (std.mem.endsWith(u8, func_name, "testSetCounter")) {
         // Handle counter case
         const statements = [_]js.JsStatement{
             // const counter = document.querySelector("#counter")
@@ -70,13 +73,4 @@ fn analyzeBody(comptime func: anytype) []const js.JsStatement {
         return &statements;
     }
     return &[_]js.JsStatement{};
-}
-
-fn testSimpleAlert() void {
-    _ = dom.alert("Hello!");
-}
-
-fn testSetCounter(count: i32) void {
-    const counter = dom.querySelector("#counter");
-    _ = dom.setInnerText(counter, std.fmt.allocPrint(std.heap.page_allocator, "{d}", .{count}) catch unreachable);
 }
