@@ -1,15 +1,15 @@
 const std = @import("std");
+const zap = @import("zap");
 const HtmlDocument = @import("html.zig").HtmlDocument;
 const html = @import("html.zig").Element;
 const JsFunction = @import("html.zig").JsFunction;
 const dom = @import("dom.zig");
 
-pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
+var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+const gpa_allocator = gpa.allocator();
 
-    var doc = HtmlDocument.init(allocator);
+fn generateHtml(alloc: std.mem.Allocator) ![]const u8 {
+    var doc = HtmlDocument.init(alloc);
 
     const head_elements = [_]html{
         html.meta("utf-8"),
@@ -22,7 +22,7 @@ pub fn main() !void {
     const counter_element = dom.Document.getElementById("counter");
 
     // Create click handler in Zig
-    var click_handler = dom.DomFunction.init(allocator, "handleClick");
+    var click_handler = dom.DomFunction.init(alloc, "handleClick");
     defer click_handler.deinit();
 
     try click_handler.addStatement("let count = parseInt(document.querySelector('#counter').innerText) || 0");
@@ -33,7 +33,7 @@ pub fn main() !void {
     );
 
     // Create setup function in Zig
-    var setup_function = dom.DomFunction.init(allocator, "setupListeners");
+    var setup_function = dom.DomFunction.init(alloc, "setupListeners");
     defer setup_function.deinit();
     try setup_function.addStatement(title_element.addEventListener(dom.Event.Type.click, "handleClick"));
 
@@ -42,8 +42,8 @@ pub fn main() !void {
         setup_function.toJs(),
     };
     defer {
-        allocator.free(js_functions[0].body);
-        allocator.free(js_functions[1].body);
+        alloc.free(js_functions[0].body);
+        alloc.free(js_functions[1].body);
     }
 
     const body_elements = [_]html{
@@ -74,12 +74,50 @@ pub fn main() !void {
         ),
     };
 
-    const html_str = try doc.build(&head_elements, &body_elements);
-    defer allocator.free(html_str);
+    return doc.build(&head_elements, &body_elements);
+}
 
-    // Print the HTML to stdout
-    const stdout = std.io.getStdOut().writer();
-    try stdout.print("{s}\n", .{html_str});
+fn on_request(r: zap.Request) void {
+    const path = r.path orelse "/";
+    if (path.len == 0 or std.mem.eql(u8, path, "/")) {
+        if (generateHtml(gpa_allocator)) |html_content| {
+            r.setHeader("Content-Type", "text/html") catch |err| {
+                std.debug.print("Error setting header: {}\n", .{err});
+                r.setStatus(.internal_server_error);
+                r.sendBody("Internal Server Error") catch return;
+                return;
+            };
+            r.sendBody(html_content) catch |err| {
+                std.debug.print("Error sending body: {}\n", .{err});
+                return;
+            };
+        } else |err| {
+            std.debug.print("Error generating HTML: {}\n", .{err});
+            r.setStatus(.internal_server_error);
+            r.sendBody("Internal Server Error") catch return;
+        }
+    } else {
+        r.setStatus(.not_found);
+        r.sendBody("Not Found") catch return;
+    }
+}
+
+pub fn main() !void {
+    defer _ = gpa.deinit();
+
+    var listener = zap.HttpListener.init(.{
+        .port = 8080,
+        .on_request = on_request,
+        .log = true,
+        .public_folder = ".",
+    });
+    try listener.listen();
+
+    std.debug.print("Server listening on http://127.0.0.1:8080\n", .{});
+    zap.start(.{
+        .threads = 2,
+        .workers = 2,
+    });
 }
 
 test "simple test" {
