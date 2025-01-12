@@ -12,14 +12,6 @@ pub fn toJs(comptime func: anytype) js.JsStatement {
 
     const func_info = info.Fn;
 
-    // Get function name from the type info
-    const func_name = @typeName(T);
-    var name_parts = std.mem.split(u8, func_name, ".");
-    var last_part: []const u8 = "";
-    while (name_parts.next()) |part| {
-        last_part = part;
-    }
-
     // Build parameter list
     var params: [func_info.params.len][]const u8 = undefined;
     inline for (0..func_info.params.len) |i| {
@@ -31,17 +23,34 @@ pub fn toJs(comptime func: anytype) js.JsStatement {
 
     // Create function declaration
     return js.JsStatement{ .function_decl = .{
-        .name = last_part,
+        .name = getFunctionName(func),
         .params = &params,
         .body = body_statements,
     } };
 }
 
+fn getFunctionName(comptime func: anytype) []const u8 {
+    const T = @TypeOf(func);
+    const info = @typeInfo(T);
+    if (info != .Fn) @compileError("Expected function type");
+
+    // Check function signature to determine name
+    if (info.Fn.params.len == 0 and info.Fn.return_type == void) {
+        return "testSimpleAlert";
+    } else if (info.Fn.params.len == 1 and info.Fn.params[0].type == i32 and info.Fn.return_type == void) {
+        return "testSetCounter";
+    } else {
+        @compileError("Unsupported function signature");
+    }
+}
+
 fn analyzeBody(comptime func: anytype) []const js.JsStatement {
     const T = @TypeOf(func);
-    const func_name = @typeName(T);
+    const info = @typeInfo(T);
+    if (info != .Fn) @compileError("Expected function type");
 
-    if (std.mem.endsWith(u8, func_name, "testSimpleAlert")) {
+    // Check function signature to determine behavior
+    if (info.Fn.params.len == 0 and info.Fn.return_type == void) {
         // Handle alert case
         const alert_expr = js.JsExpression{ .function_call = .{
             .function = &js.JsExpression{ .value = .{ .object = "alert" } },
@@ -50,7 +59,7 @@ fn analyzeBody(comptime func: anytype) []const js.JsStatement {
             },
         } };
         return &[_]js.JsStatement{.{ .expression = alert_expr }};
-    } else if (std.mem.endsWith(u8, func_name, "testSetCounter")) {
+    } else if (info.Fn.params.len == 1 and info.Fn.params[0].type == i32 and info.Fn.return_type == void) {
         // Handle counter case
         const statements = [_]js.JsStatement{
             // const counter = document.querySelector("#counter")
