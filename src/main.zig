@@ -17,25 +17,23 @@ fn generateHtml(alloc: std.mem.Allocator) ![]const u8 {
         html.script("https://cdn.tailwindcss.com", true),
     };
 
-    // Create type-safe DOM elements
-    const title_element = dom.Document.querySelector("h1");
-    const counter_element = dom.Document.getElementById("counter");
-
     // Create click handler in Zig
     var click_handler = dom.DomFunction.init(alloc, "handleClick");
     defer click_handler.deinit();
 
-    try click_handler.addStatement("let count = parseInt(document.querySelector('#counter').innerText) || 0");
-    try click_handler.addStatement("count++");
-    try click_handler.addStatement(counter_element.setInnerText("count.toString()"));
     try click_handler.addStatement(
+        \\let count = parseInt(document.querySelector('#counter').innerText) || 0;
+        \\count++;
+        \\document.querySelector('#counter').innerText = count.toString();
         \\if (count === 10) { alert('You reached 10 clicks!'); }
     );
 
     // Create setup function in Zig
     var setup_function = dom.DomFunction.init(alloc, "setupListeners");
     defer setup_function.deinit();
-    try setup_function.addStatement(title_element.addEventListener(dom.Event.Type.click, "handleClick"));
+    try setup_function.addStatement(
+        \\document.querySelector('h1').addEventListener('click', handleClick);
+    );
 
     const js_functions = [_]JsFunction{
         click_handler.toJs(),
@@ -59,7 +57,7 @@ fn generateHtml(alloc: std.mem.Allocator) ![]const u8 {
                     &[_]html{
                         html.text("Count: "),
                         html.div(
-                            null,
+                            "#counter",
                             &[_]html{html.text("0")},
                         ),
                     },

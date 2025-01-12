@@ -95,22 +95,6 @@ pub const Document = struct {
     }
 };
 
-pub const JsValue = union(enum) {
-    string: []const u8,
-    number: i32,
-    boolean: bool,
-    null,
-
-    pub fn toString(self: JsValue) []const u8 {
-        return switch (self) {
-            .string => |s| std.fmt.allocPrint(std.heap.page_allocator, "'{s}'", .{s}) catch unreachable,
-            .number => |n| std.fmt.allocPrint(std.heap.page_allocator, "{d}", .{n}) catch unreachable,
-            .boolean => |b| if (b) "true" else "false",
-            .null => "null",
-        };
-    }
-};
-
 pub const DomFunction = struct {
     name: []const u8,
     statements: std.ArrayList([]const u8),
@@ -142,15 +126,13 @@ pub const DomFunction = struct {
         defer body.deinit();
 
         for (self.statements.items) |statement| {
-            body.writer().print("{s};\n", .{statement}) catch unreachable;
+            body.writer().print("{s}\n", .{statement}) catch unreachable;
         }
-
-        const owned_body = self.allocator.dupe(u8, body.items) catch unreachable;
 
         return .{
             .name = self.name,
-            .args = &[_][]const u8{"event"},
-            .body = owned_body,
+            .args = &[_][]const u8{},
+            .body = self.allocator.dupe(u8, body.items) catch unreachable,
         };
     }
 };

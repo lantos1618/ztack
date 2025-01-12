@@ -37,6 +37,7 @@ pub const Element = union(enum) {
     pub const Container = struct {
         children: []const Element = &.{},
         class: ?[]const u8 = null,
+        id: ?[]const u8 = null,
     };
 
     pub const Script = struct {
@@ -54,8 +55,15 @@ pub const Element = union(enum) {
         return .{ .text = content };
     }
 
-    pub fn div(class: ?[]const u8, children: []const Element) Element {
-        return .{ .div = .{ .class = class, .children = children } };
+    pub fn div(class_or_id: ?[]const u8, children: []const Element) Element {
+        if (class_or_id) |value| {
+            if (std.mem.startsWith(u8, value, "#")) {
+                return .{ .div = .{ .id = value[1..], .children = children } };
+            } else {
+                return .{ .div = .{ .class = value, .children = children } };
+            }
+        }
+        return .{ .div = .{ .children = children } };
     }
 
     pub fn h1(class: ?[]const u8, children: []const Element) Element {
@@ -103,11 +111,14 @@ pub const Element = union(enum) {
             .text => |t| try writer.writeAll(t),
             .div => |d| {
                 try writer.writeByteNTimes(' ', indent);
+                try writer.writeAll("<div");
                 if (d.class) |class| {
-                    try writer.print("<div class=\"{s}\">\n", .{class});
-                } else {
-                    try writer.writeAll("<div>\n");
+                    try writer.print(" class=\"{s}\"", .{class});
                 }
+                if (d.id) |id| {
+                    try writer.print(" id=\"{s}\"", .{id});
+                }
+                try writer.writeAll(">\n");
                 for (d.children) |child| {
                     try child.toString(writer, indent + 2);
                     try writer.writeByte('\n');
