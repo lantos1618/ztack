@@ -22,9 +22,12 @@ pub fn generateHtml() []const html.Element {
                 .{ .div = .{ .class = "flex gap-4 items-center", .children = &[_]html.Element{
                     .{ .input = .{ .type = "number", .id = "num1", .value = "5", .class = "border p-2 rounded" } },
                     .{ .input = .{ .type = "number", .id = "num2", .value = "3", .class = "border p-2 rounded" } },
-                    .{ .button = .{ .onclick = "calculateAdd()", .class = "bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600", .children = &[_]html.Element{
-                        html.Element.text("Add"),
-                    } } },
+                    .{ .button = .{
+                        .class = "bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600",
+                        .children = &[_]html.Element{
+                            html.Element.text("Add"),
+                        },
+                    } },
                     .{ .p = .{ .class = "ml-4", .children = &[_]html.Element{
                         html.Element.text("Result: "),
                         .{ .span = .{ .id = "addResult", .class = "font-bold", .children = &[_]html.Element{
@@ -39,9 +42,12 @@ pub fn generateHtml() []const html.Element {
                 } } },
                 .{ .div = .{ .class = "flex gap-4 items-center", .children = &[_]html.Element{
                     .{ .input = .{ .type = "number", .id = "fibN", .value = "10", .class = "border p-2 rounded" } },
-                    .{ .button = .{ .onclick = "calculateFib()", .class = "bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600", .children = &[_]html.Element{
-                        html.Element.text("Calculate"),
-                    } } },
+                    .{ .button = .{
+                        .class = "bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600",
+                        .children = &[_]html.Element{
+                            html.Element.text("Calculate"),
+                        },
+                    } },
                     .{ .p = .{ .class = "ml-4", .children = &[_]html.Element{
                         html.Element.text("Result: "),
                         .{ .span = .{ .id = "fibResult", .class = "font-bold", .children = &[_]html.Element{

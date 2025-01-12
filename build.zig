@@ -11,10 +11,6 @@ pub fn build(b: *std.Build) void {
     });
 
     // Create modules
-    const html_module = b.addModule("html", .{
-        .root_source_file = b.path("src/html.zig"),
-    });
-
     const js_gen_module = b.addModule("js_gen", .{
         .root_source_file = b.path("src/js_gen.zig"),
     });
@@ -23,6 +19,11 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("src/js_reflect.zig"),
     });
     js_reflect_module.addImport("js_gen", js_gen_module);
+
+    const html_module = b.addModule("html", .{
+        .root_source_file = b.path("src/html.zig"),
+    });
+    html_module.addImport("js_reflect", js_reflect_module);
 
     const dom_module = b.addModule("dom", .{
         .root_source_file = b.path("src/dom.zig"),

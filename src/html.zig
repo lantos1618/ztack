@@ -75,7 +75,7 @@ pub const Element = union(enum) {
         children: []const Element = &.{},
         class: ?[]const u8 = null,
         id: ?[]const u8 = null,
-        onclick: ?*const fn () void = null,
+        onclick: ?[]const u8 = null,
     };
 
     // Helper functions
@@ -246,9 +246,7 @@ pub const Element = union(enum) {
                     try writer.print(" id=\"{s}\"", .{id});
                 }
                 if (b.onclick) |onclick| {
-                    const js_reflect = @import("js_reflect.zig");
-                    const handler_name = js_reflect.getFunctionName(onclick);
-                    try writer.print(" onclick=\"{s}()\"", .{handler_name});
+                    try writer.print(" onclick=\"{s}\"", .{onclick});
                 }
                 try writer.writeAll(">\n");
                 for (b.children) |child| {
@@ -303,9 +301,7 @@ pub const Element = union(enum) {
                 }
                 try writer.print(" href=\"{s}\"", .{a.href});
                 if (a.onclick) |onclick| {
-                    const js_reflect = @import("js_reflect.zig");
-                    const handler_name = js_reflect.getFunctionName(onclick);
-                    try writer.print(" onclick=\"{s}()\"", .{handler_name});
+                    try writer.print(" onclick=\"{s}\"", .{onclick});
                 }
                 try writer.writeAll(">\n");
                 for (a.children) |child| {

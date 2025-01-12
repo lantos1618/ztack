@@ -105,6 +105,7 @@ pub fn generateHtml(allocator: std.mem.Allocator) ![]const u8 {
                                         html.Element{ .button = .{
                                             .class = "px-8 py-4 bg-blue-600 hover:bg-blue-700 rounded-lg transform hover:scale-105 transition-all duration-200 shadow-lg hover:shadow-xl text-xl font-bold",
                                             .id = "clickButton",
+                                            .onclick = "handleClick()",
                                             .children = &[_]html.Element{
                                                 html.Element.text("Click Me!"),
                                             },
@@ -136,6 +137,14 @@ pub fn generateHtml(allocator: std.mem.Allocator) ![]const u8 {
                                     .class = "text-blue-400 hover:text-blue-300",
                                     .children = &[_]html.Element{
                                         html.Element.text("Tailwind CSS"),
+                                    },
+                                } },
+                                html.Element.text(" • "),
+                                html.Element{ .a = .{
+                                    .href = "/wasm",
+                                    .class = "text-blue-400 hover:text-blue-300",
+                                    .children = &[_]html.Element{
+                                        html.Element.text("Try WASM Demo"),
                                     },
                                 } },
                             },

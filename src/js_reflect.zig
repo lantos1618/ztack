@@ -2,6 +2,15 @@ const std = @import("std");
 const dom = @import("dom");
 const js = @import("js_gen");
 
+pub fn getFunctionName(func: anytype) []const u8 {
+    const T = @TypeOf(func);
+    const info = @typeInfo(T);
+    if (info != .Pointer or info.Pointer.size != .One or @typeInfo(info.Pointer.child) != .Fn) {
+        @compileError("Expected function pointer, got " ++ @typeName(T));
+    }
+    return @typeName(info.Pointer.child);
+}
+
 /// Convert a Zig function to JavaScript AST
 pub fn toJs(comptime func: anytype, comptime name: []const u8) js.JsStatement {
     const T = @TypeOf(func);
@@ -114,20 +123,20 @@ fn analyzeBody(comptime func: anytype, comptime name: []const u8) []const js.JsS
         };
     } else if (std.mem.eql(u8, name, "setupListeners")) {
         return &[_]js.JsStatement{
-            // Get heading element
+            // Get button element
             .{ .const_decl = .{
-                .name = "heading",
+                .name = "button",
                 .value = js.JsExpression{ .method_call = .{
                     .object = &js.JsExpression{ .value = .{ .object = "document" } },
                     .method = "querySelector",
                     .args = &[_]js.JsExpression{
-                        .{ .value = .{ .string = "h1" } },
+                        .{ .value = .{ .string = "#clickButton" } },
                     },
                 } },
             } },
             // Add click listener
             .{ .expression = js.JsExpression{ .method_call = .{
-                .object = &js.JsExpression{ .identifier = "heading" },
+                .object = &js.JsExpression{ .identifier = "button" },
                 .method = "addEventListener",
                 .args = &[_]js.JsExpression{
                     .{ .value = .{ .string = "click" } },
