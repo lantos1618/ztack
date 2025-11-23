@@ -47,6 +47,15 @@ pub fn build(b: *std.Build) void {
     });
     b.installArtifact(server_exe);
 
+    // WASM counter server executable (no dependencies)
+    const wasm_server_exe = b.addExecutable(.{
+        .name = "wasm_counter",
+        .root_source_file = b.path("src/examples/wasm_simple_server.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    b.installArtifact(wasm_server_exe);
+
     // // Add wasm target
     // const wasm_target: std.Target.Query = .{
     //     .cpu_arch = .wasm32,
@@ -117,4 +126,9 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_exe_unit_tests.step);
     test_step.dependOn(&run_transpiler_test.step);
+
+    // Test wasm_counter
+    const run_wasm_counter = b.addRunArtifact(wasm_server_exe);
+    const test_wasm_step = b.step("test-wasm", "Run WASM counter server");
+    test_wasm_step.dependOn(&run_wasm_counter.step);
 }
