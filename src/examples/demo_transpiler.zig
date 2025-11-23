@@ -23,11 +23,13 @@ pub fn main() !void {
 
     std.debug.print("✅ Successfully transpiled {} functions:\n\n", .{statements.len});
 
+    var stdout = std.io.getStdOut().writer();
     for (statements, 0..) |stmt, i| {
         std.debug.print("─────────────────────────────────────────────────────────\n", .{});
         std.debug.print("Function {}: \n", .{i});
         std.debug.print("─────────────────────────────────────────────────────────\n", .{});
-        std.debug.print("{s}\n\n", .{stmt.toString(allocator)});
+        try stmt.write(stdout, 0);
+        try stdout.writeAll("\n\n");
     }
 
     std.debug.print("✨ Transpilation complete!\n\n", .{});

@@ -18,10 +18,16 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("src/modules/html.zig"),
     });
 
+    const symbol_map_module = b.addModule("symbol_map", .{
+        .root_source_file = b.path("src/modules/symbol_map.zig"),
+    });
+    symbol_map_module.addImport("js", js_module);
+
     const transpiler_module = b.addModule("transpiler", .{
         .root_source_file = b.path("src/modules/transpiler.zig"),
     });
     transpiler_module.addImport("js", js_module);
+    transpiler_module.addImport("symbol_map", symbol_map_module);
 
     // Demo transpiler executable
     const demo_exe = b.addExecutable(.{

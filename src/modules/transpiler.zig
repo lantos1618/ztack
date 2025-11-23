@@ -1,5 +1,6 @@
 const std = @import("std");
 const js = @import("js");
+const symbol_map = @import("symbol_map");
 
 /// Zig Script subset validator
 /// Tracks unsupported constructs found during transpilation
@@ -103,19 +104,33 @@ pub const Transpiler = struct {
         const fn_name_token = fn_proto_main_token + 1;
         const fn_name = self.tree.tokenSlice(fn_name_token);
 
-        // Check for function parameters (not yet supported)
+        // Extract function parameters
+        var params = std.ArrayList([]const u8).init(self.arena);
+        defer params.deinit();
+        
         const fn_proto_data = self.tree.nodes.items(.data)[fn_proto_idx];
         const fn_proto_tag = node_tags[fn_proto_idx];
         
-        // If this is a function proto with parameters, warn
         if (fn_proto_tag == .fn_proto) {
             const proto_lhs = fn_proto_data.lhs;
             const proto_rhs = fn_proto_data.rhs;
-            if (proto_rhs > proto_lhs and proto_lhs != 0) {
-                // Has parameters
-                const warning = try std.fmt.allocPrint(self.arena, "Function '{s}' has parameters, which are not yet supported and will be ignored", .{fn_name});
-                try self.validator.warn(warning);
-                self.arena.free(warning);
+            if (proto_rhs > proto_lhs) {
+                // Has parameters - extract them
+                // Parameters are stored in extra_data between proto_lhs and proto_rhs
+                const param_indices = self.tree.extra_data[proto_lhs..proto_rhs];
+                for (param_indices) |param_idx| {
+                    // Most parameter nodes use identifier tokens directly
+                    const param_main_token = main_tokens[param_idx];
+                    // The parameter name is usually at param_main_token + 1 (after the type)
+                    // But for simple params, we might need to check different positions
+                    const param_name = self.tree.tokenSlice(param_main_token);
+                    // Skip type tokens, look for identifier
+                    if (!std.mem.eql(u8, param_name, "var") and 
+                        !std.mem.eql(u8, param_name, "const") and
+                        param_name.len > 0) {
+                        try params.append(param_name);
+                    }
+                }
             }
         }
 
@@ -139,10 +154,11 @@ pub const Transpiler = struct {
         }
 
         const body = try body_statements.toOwnedSlice();
+        const params_slice = try params.toOwnedSlice();
         return js.JsStatement{
             .function_decl = .{
                 .name = fn_name,
-                .params = &[_][]const u8{},
+                .params = params_slice,
                 .body = body,
             },
         };
@@ -166,6 +182,10 @@ pub const Transpiler = struct {
             .for_simple => {
                 return self.transpileForSimple(stmt_idx) catch null;
             },
+            // TODO: Implement switch statement support
+            // .switch => {
+            //     return self.transpileSwitch(stmt_idx) catch null;
+            // },
             .call_one, .call => {
                 // Expression statement (like a function call)
                 if (self.transpileExpr(stmt_idx)) |expr| {
@@ -345,6 +365,47 @@ pub const Transpiler = struct {
         };
     }
 
+    fn transpileSwitch(self: *Transpiler, switch_idx: u32) !?js.JsStatement {
+        const node_data = self.tree.nodes.items(.data);
+        const node_tags = self.tree.nodes.items(.tag);
+        
+        const condition_idx = node_data[switch_idx].lhs;
+        const body_idx = node_data[switch_idx].rhs;
+        
+        const condition = self.transpileExpr(condition_idx) orelse js.JsExpression{ .value = .{ .undefined = {} } };
+        
+        // Parse switch cases - for now, convert to if-else-if chain
+        var body_statements = std.ArrayList(js.JsStatement).init(self.arena);
+        defer body_statements.deinit();
+        
+        const body_tag = node_tags[body_idx];
+        if (body_tag == .block or body_tag == .block_semicolon) {
+            const lhs = node_data[body_idx].lhs;
+            const rhs = node_data[body_idx].rhs;
+            
+            if (rhs > lhs) {
+                const block_stmts = self.tree.extra_data[lhs..rhs];
+                for (block_stmts) |stmt_idx| {
+                    if (self.transpileStmt(stmt_idx)) |stmt| {
+                        try body_statements.append(stmt);
+                    }
+                }
+            }
+        }
+        
+        const body = try body_statements.toOwnedSlice();
+        
+        // For now, we'll just return an if statement as a placeholder
+        // A full switch statement implementation would be more complex
+        return js.JsStatement{
+            .if_stmt = .{
+                .condition = condition,
+                .body = body,
+                .else_body = null,
+            },
+        };
+    }
+
     fn transpileExpr(self: *Transpiler, expr_idx: u32) ?js.JsExpression {
         const node_tags = self.tree.nodes.items(.tag);
         const node_data = self.tree.nodes.items(.data);
@@ -496,22 +557,19 @@ pub const Transpiler = struct {
         };
     }
 
-    /// Map Zig symbols to JavaScript equivalents (e.g., dom -> document)
+    /// Map Zig symbols to JavaScript equivalents using symbol_map module
     fn mapSymbols(self: *Transpiler, expr: js.JsExpression) js.JsExpression {
         switch (expr) {
             .property_access => |p| {
-                // Map dom.* to document.*
-                if (std.mem.eql(u8, p.property, "querySelector") or
-                    std.mem.eql(u8, p.property, "getElementById") or
-                    std.mem.eql(u8, p.property, "querySelectorAll")) {
-                    // Check if the object is "dom"
-                    if (p.object.* == .identifier and std.mem.eql(u8, p.object.*.identifier, "dom")) {
-                        const doc_expr = self.arena.create(js.JsExpression) catch return expr;
-                        doc_expr.* = .{ .value = .{ .object = "document" } };
+                if (p.object.* == .identifier) {
+                    const obj_name = p.object.*.identifier;
+                    if (symbol_map.findPropertyMapping(obj_name, p.property)) |mapping| {
+                        const mapped_obj = self.arena.create(js.JsExpression) catch return expr;
+                        mapped_obj.* = .{ .value = .{ .object = mapping.js_object } };
                         return .{
                             .property_access = .{
-                                .object = doc_expr,
-                                .property = p.property,
+                                .object = mapped_obj,
+                                .property = mapping.js_property,
                             },
                         };
                     }
@@ -519,40 +577,19 @@ pub const Transpiler = struct {
                 return expr;
             },
             .method_call => |m| {
-                // Map dom.alert() -> window.alert()
-                if (std.mem.eql(u8, m.method, "alert")) {
-                    if (m.object.* == .identifier and std.mem.eql(u8, m.object.*.identifier, "dom")) {
-                        const win_expr = self.arena.create(js.JsExpression) catch return expr;
-                        win_expr.* = .{ .value = .{ .object = "window" } };
+                if (m.object.* == .identifier) {
+                    const obj_name = m.object.*.identifier;
+                    if (symbol_map.findMethodMapping(obj_name, m.method)) |mapping| {
+                        const mapped_obj = self.arena.create(js.JsExpression) catch return expr;
+                        mapped_obj.* = .{ .value = .{ .object = mapping.js_object } };
                         return .{
                             .method_call = .{
-                                .object = win_expr,
-                                .method = "alert",
+                                .object = mapped_obj,
+                                .method = mapping.js_method,
                                 .args = m.args,
                             },
                         };
                     }
-                }
-                // Map dom.querySelector -> document.querySelector
-                if (std.mem.eql(u8, m.method, "querySelector") or
-                    std.mem.eql(u8, m.method, "getElementById") or
-                    std.mem.eql(u8, m.method, "querySelectorAll")) {
-                    if (m.object.* == .identifier and std.mem.eql(u8, m.object.*.identifier, "dom")) {
-                        const doc_expr = self.arena.create(js.JsExpression) catch return expr;
-                        doc_expr.* = .{ .value = .{ .object = "document" } };
-                        return .{
-                            .method_call = .{
-                                .object = doc_expr,
-                                .method = m.method,
-                                .args = m.args,
-                            },
-                        };
-                    }
-                }
-                // Map dom.addEventListener() -> element.addEventListener()
-                if (std.mem.eql(u8, m.method, "addEventListener")) {
-                    // This is typically on an element, not dom, so pass through
-                    return expr;
                 }
                 return expr;
             },

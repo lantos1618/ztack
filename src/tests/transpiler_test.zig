@@ -20,8 +20,10 @@ pub fn main() !void {
 
     std.debug.print("Generated {} statements:\n\n", .{statements.len});
 
+    var stdout = std.io.getStdOut().writer();
     for (statements, 0..) |stmt, i| {
         std.debug.print("Statement {}:\n", .{i});
-        std.debug.print("  {s}\n\n", .{stmt.toString(allocator)});
+        try stmt.write(stdout, 1);
+        try stdout.writeAll("\n\n");
     }
 }

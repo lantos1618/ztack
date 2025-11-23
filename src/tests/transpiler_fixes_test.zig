@@ -24,7 +24,9 @@ pub fn main() !void {
     defer trans1.deinit();
     const stmts1 = try trans1.transpile();
     defer allocator.free(stmts1);
-    std.debug.print("{s}\n\n", .{stmts1[0].toString(allocator)});
+    var stdout = std.io.getStdOut().writer();
+    try stmts1[0].write(stdout, 0);
+    try stdout.writeAll("\n\n");
 
     // Test 2: For loop transpilation
     std.debug.print("Test 2: For Loop Support (for range)\n", .{});
@@ -39,7 +41,8 @@ pub fn main() !void {
     defer trans2.deinit();
     const stmts2 = try trans2.transpile();
     defer allocator.free(stmts2);
-    std.debug.print("{s}\n\n", .{stmts2[0].toString(allocator)});
+    try stmts2[0].write(stdout, 0);
+    try stdout.writeAll("\n\n");
 
     // Test 3: DOM mapping
     std.debug.print("Test 3: DOM Namespace Mapping (dom -> document)\n", .{});
@@ -53,7 +56,8 @@ pub fn main() !void {
     defer trans3.deinit();
     const stmts3 = try trans3.transpile();
     defer allocator.free(stmts3);
-    std.debug.print("{s}\n\n", .{stmts3[0].toString(allocator)});
+    try stmts3[0].write(stdout, 0);
+    try stdout.writeAll("\n\n");
 
     std.debug.print("\n✨ All tests completed!\n", .{});
 }
