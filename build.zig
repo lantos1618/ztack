@@ -104,6 +104,18 @@ pub fn build(b: *std.Build) void {
 
     const run_transpiler_test = b.addRunArtifact(transpiler_test);
 
+    // Transpiler fixes test
+    const transpiler_fixes_test = b.addExecutable(.{
+        .name = "transpiler_fixes_test",
+        .root_source_file = b.path("src/tests/transpiler_fixes_test.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    transpiler_fixes_test.root_module.addImport("transpiler", transpiler_module);
+    transpiler_fixes_test.root_module.addImport("js", js_module);
+
+    const run_transpiler_fixes_test = b.addRunArtifact(transpiler_fixes_test);
+
     // Main test executable
     const exe_unit_tests = b.addTest(.{
         .root_source_file = b.path("src/tests/test_ast.zig"),
@@ -117,6 +129,7 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_exe_unit_tests.step);
     test_step.dependOn(&run_transpiler_test.step);
+    test_step.dependOn(&run_transpiler_fixes_test.step);
 
     // WASM counter test
     const run_wasm_counter = b.addRunArtifact(wasm_server_exe);

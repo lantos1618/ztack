@@ -163,6 +163,16 @@ pub const Transpiler = struct {
             .if_simple => {
                 return self.transpileIf(stmt_idx) catch null;
             },
+            .for_simple => {
+                return self.transpileForSimple(stmt_idx) catch null;
+            },
+            .call_one, .call => {
+                // Expression statement (like a function call)
+                if (self.transpileExpr(stmt_idx)) |expr| {
+                    return js.JsStatement{ .expression = expr };
+                }
+                return null;
+            },
             else => {
                 return null;
             },
@@ -180,8 +190,9 @@ pub const Transpiler = struct {
         const init_idx = node_data[decl_idx].rhs;
         const value = self.transpileExpr(init_idx) orelse js.JsExpression{ .value = .{ .undefined = {} } };
 
+        // Use let_decl for Zig var (mutable) declarations
         return js.JsStatement{
-            .var_decl = .{
+            .let_decl = .{
                 .name = name,
                 .value = value,
             },
@@ -243,6 +254,93 @@ pub const Transpiler = struct {
                 .condition = condition,
                 .body = body,
                 .else_body = null,
+            },
+        };
+    }
+
+    fn transpileForSimple(self: *Transpiler, for_idx: u32) !?js.JsStatement {
+        const node_data = self.tree.nodes.items(.data);
+        const node_tags = self.tree.nodes.items(.tag);
+        const main_tokens = self.tree.nodes.items(.main_token);
+
+        // for_simple has: lhs = capture (range), rhs = body
+        const capture_idx = node_data[for_idx].lhs;
+        const body_idx = node_data[for_idx].rhs;
+
+        // Get the iterator variable name
+        const capture_main_token = main_tokens[capture_idx];
+        const capture_name = self.tree.tokenSlice(capture_main_token);
+
+        // Parse the range (0..10) from the for expression
+        // The range is in the AST, we need to extract start and end
+        const range_data = self.tree.nodes.items(.data)[capture_idx];
+        const range_lhs = range_data.lhs;
+        const range_rhs = range_data.rhs;
+
+        const start_expr = self.transpileExpr(range_lhs) orelse js.JsExpression{ .value = .{ .number = 0 } };
+        const end_expr = self.transpileExpr(range_rhs) orelse js.JsExpression{ .value = .{ .number = 0 } };
+
+        // Build for body statements
+        var body_statements = std.ArrayList(js.JsStatement).init(self.arena);
+        defer body_statements.deinit();
+
+        const body_tag = node_tags[body_idx];
+        if (body_tag == .block or body_tag == .block_semicolon) {
+            const lhs = node_data[body_idx].lhs;
+            const rhs = node_data[body_idx].rhs;
+
+            if (rhs > lhs) {
+                const block_stmts = self.tree.extra_data[lhs..rhs];
+                for (block_stmts) |stmt_idx| {
+                    if (self.transpileStmt(stmt_idx)) |stmt| {
+                        try body_statements.append(stmt);
+                    }
+                }
+            }
+        }
+
+        const body = try body_statements.toOwnedSlice();
+
+        // Create init statement: let i = start
+        const init_stmt = try self.arena.create(js.JsStatement);
+        init_stmt.* = .{
+            .let_decl = .{
+                .name = capture_name,
+                .value = start_expr,
+            },
+        };
+
+        // Create condition: i < end
+        const condition_ptr_left = try self.arena.create(js.JsExpression);
+        condition_ptr_left.* = .{ .identifier = capture_name };
+        const condition_ptr_right = try self.arena.create(js.JsExpression);
+        condition_ptr_right.* = end_expr;
+
+        const condition = js.JsExpression{
+            .binary_op = .{
+                .left = condition_ptr_left,
+                .operator = "<",
+                .right = condition_ptr_right,
+            },
+        };
+
+        // Create update: i++
+        const update_operand = try self.arena.create(js.JsExpression);
+        update_operand.* = .{ .identifier = capture_name };
+        const update = js.JsExpression{
+            .unary_op = .{
+                .operator = "++",
+                .operand = update_operand,
+                .is_postfix = true,
+            },
+        };
+
+        return js.JsStatement{
+            .for_stmt = .{
+                .init = init_stmt,
+                .condition = condition,
+                .update = update,
+                .body = body,
             },
         };
     }
@@ -360,7 +458,7 @@ pub const Transpiler = struct {
 
         // Get the function being called
         const fn_idx = node_data[expr_idx].lhs;
-        const fn_expr = self.transpileExpr(fn_idx) orelse return null;
+        var fn_expr = self.transpileExpr(fn_idx) orelse return null;
 
         // Get argument indices
         var args = std.ArrayList(js.JsExpression).init(self.arena);
@@ -382,6 +480,9 @@ pub const Transpiler = struct {
             };
         }
 
+        // Apply symbol mapping for dom -> document
+        fn_expr = self.mapSymbols(fn_expr);
+
         const fn_ptr = self.arena.create(js.JsExpression) catch return null;
         fn_ptr.* = fn_expr;
 
@@ -393,5 +494,81 @@ pub const Transpiler = struct {
                 .args = args_slice,
             },
         };
+    }
+
+    /// Map Zig symbols to JavaScript equivalents (e.g., dom -> document)
+    fn mapSymbols(self: *Transpiler, expr: js.JsExpression) js.JsExpression {
+        switch (expr) {
+            .property_access => |p| {
+                // Map dom.* to document.*
+                if (std.mem.eql(u8, p.property, "querySelector") or
+                    std.mem.eql(u8, p.property, "getElementById") or
+                    std.mem.eql(u8, p.property, "querySelectorAll")) {
+                    // Check if the object is "dom"
+                    if (p.object.* == .identifier and std.mem.eql(u8, p.object.*.identifier, "dom")) {
+                        const doc_expr = self.arena.create(js.JsExpression) catch return expr;
+                        doc_expr.* = .{ .value = .{ .object = "document" } };
+                        return .{
+                            .property_access = .{
+                                .object = doc_expr,
+                                .property = p.property,
+                            },
+                        };
+                    }
+                }
+                return expr;
+            },
+            .method_call => |m| {
+                // Map dom.alert() -> window.alert()
+                if (std.mem.eql(u8, m.method, "alert")) {
+                    if (m.object.* == .identifier and std.mem.eql(u8, m.object.*.identifier, "dom")) {
+                        const win_expr = self.arena.create(js.JsExpression) catch return expr;
+                        win_expr.* = .{ .value = .{ .object = "window" } };
+                        return .{
+                            .method_call = .{
+                                .object = win_expr,
+                                .method = "alert",
+                                .args = m.args,
+                            },
+                        };
+                    }
+                }
+                // Map dom.querySelector -> document.querySelector
+                if (std.mem.eql(u8, m.method, "querySelector") or
+                    std.mem.eql(u8, m.method, "getElementById") or
+                    std.mem.eql(u8, m.method, "querySelectorAll")) {
+                    if (m.object.* == .identifier and std.mem.eql(u8, m.object.*.identifier, "dom")) {
+                        const doc_expr = self.arena.create(js.JsExpression) catch return expr;
+                        doc_expr.* = .{ .value = .{ .object = "document" } };
+                        return .{
+                            .method_call = .{
+                                .object = doc_expr,
+                                .method = m.method,
+                                .args = m.args,
+                            },
+                        };
+                    }
+                }
+                // Map dom.addEventListener() -> element.addEventListener()
+                if (std.mem.eql(u8, m.method, "addEventListener")) {
+                    // This is typically on an element, not dom, so pass through
+                    return expr;
+                }
+                return expr;
+            },
+            .function_call => |f| {
+                // Check if calling a mapped property access
+                const mapped_fn = self.mapSymbols(f.function.*);
+                const fn_ptr = self.arena.create(js.JsExpression) catch return expr;
+                fn_ptr.* = mapped_fn;
+                return .{
+                    .function_call = .{
+                        .function = fn_ptr,
+                        .args = f.args,
+                    },
+                };
+            },
+            else => return expr,
+        }
     }
 };

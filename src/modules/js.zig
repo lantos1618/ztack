@@ -42,6 +42,7 @@ pub const JsExpression = union(enum) {
     unary_op: struct {
         operator: []const u8,
         operand: *const JsExpression,
+        is_postfix: bool = false,
     },
     property_access: struct {
         object: *const JsExpression,
@@ -72,8 +73,13 @@ pub const JsExpression = union(enum) {
                 try b.right.write(writer);
             },
             .unary_op => |u| {
-                try writer.writeAll(u.operator);
-                try u.operand.write(writer);
+                if (u.is_postfix) {
+                    try u.operand.write(writer);
+                    try writer.writeAll(u.operator);
+                } else {
+                    try writer.writeAll(u.operator);
+                    try u.operand.write(writer);
+                }
             },
             .property_access => |p| {
                 try p.object.write(writer);
@@ -128,7 +134,11 @@ pub const JsExpression = union(enum) {
             },
             .unary_op => |u| {
                 const operand = u.operand.toString(allocator);
-                return std.fmt.allocPrint(allocator, "{s}{s}", .{ u.operator, operand }) catch unreachable;
+                if (u.is_postfix) {
+                    return std.fmt.allocPrint(allocator, "{s}{s}", .{ operand, u.operator }) catch unreachable;
+                } else {
+                    return std.fmt.allocPrint(allocator, "{s}{s}", .{ u.operator, operand }) catch unreachable;
+                }
             },
             .property_access => |p| {
                 const obj = p.object.toString(allocator);

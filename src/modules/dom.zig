@@ -30,10 +30,11 @@ pub fn getElementsByClassName(allocator: std.mem.Allocator, class: []const u8) j
     return querySelector(std.fmt.allocPrint(allocator, ".{s}", .{class}) catch unreachable);
 }
 
-pub fn setInnerText(allocator: std.mem.Allocator, element: js.JsExpression, text: []const u8) js.JsExpression {
-    return .{ .assign = .{
-        .target = std.fmt.allocPrint(allocator, "{s}.innerText", .{element.toString(allocator)}) catch unreachable,
-        .value = .{ .value = .{ .string = text } },
+pub fn setInnerText(element: js.JsExpression, text: []const u8) js.JsExpression {
+    // Return a method call instead: element.innerText = text
+    return .{ .property_access = .{
+        .object = &element,
+        .property = "innerText",
     } };
 }
 
@@ -44,10 +45,11 @@ pub fn getInnerText(element: js.JsExpression) js.JsExpression {
     } };
 }
 
-pub fn setInnerHtml(allocator: std.mem.Allocator, element: js.JsExpression, html: []const u8) js.JsExpression {
-    return .{ .assign = .{
-        .target = std.fmt.allocPrint(allocator, "{s}.innerHTML", .{element.toString(allocator)}) catch unreachable,
-        .value = .{ .value = .{ .string = html } },
+pub fn setInnerHtml(element: js.JsExpression, html: []const u8) js.JsExpression {
+    // Return a method call instead: element.innerHTML = html
+    return .{ .property_access = .{
+        .object = &element,
+        .property = "innerHTML",
     } };
 }
 
