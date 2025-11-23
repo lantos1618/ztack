@@ -22,17 +22,17 @@ pub fn querySelector(selector: []const u8) js.JsExpression {
     } };
 }
 
-pub fn getElementById(id: []const u8) js.JsExpression {
-    return querySelector(std.fmt.allocPrint(std.heap.page_allocator, "#{s}", .{id}) catch unreachable);
+pub fn getElementById(allocator: std.mem.Allocator, id: []const u8) js.JsExpression {
+    return querySelector(std.fmt.allocPrint(allocator, "#{s}", .{id}) catch unreachable);
 }
 
-pub fn getElementsByClassName(class: []const u8) js.JsExpression {
-    return querySelector(std.fmt.allocPrint(std.heap.page_allocator, ".{s}", .{class}) catch unreachable);
+pub fn getElementsByClassName(allocator: std.mem.Allocator, class: []const u8) js.JsExpression {
+    return querySelector(std.fmt.allocPrint(allocator, ".{s}", .{class}) catch unreachable);
 }
 
-pub fn setInnerText(element: js.JsExpression, text: []const u8) js.JsExpression {
+pub fn setInnerText(allocator: std.mem.Allocator, element: js.JsExpression, text: []const u8) js.JsExpression {
     return .{ .assign = .{
-        .target = std.fmt.allocPrint(std.heap.page_allocator, "{s}.innerText", .{element.toString()}) catch unreachable,
+        .target = std.fmt.allocPrint(allocator, "{s}.innerText", .{element.toString(allocator)}) catch unreachable,
         .value = .{ .value = .{ .string = text } },
     } };
 }
@@ -44,9 +44,9 @@ pub fn getInnerText(element: js.JsExpression) js.JsExpression {
     } };
 }
 
-pub fn setInnerHtml(element: js.JsExpression, html: []const u8) js.JsExpression {
+pub fn setInnerHtml(allocator: std.mem.Allocator, element: js.JsExpression, html: []const u8) js.JsExpression {
     return .{ .assign = .{
-        .target = std.fmt.allocPrint(std.heap.page_allocator, "{s}.innerHTML", .{element.toString()}) catch unreachable,
+        .target = std.fmt.allocPrint(allocator, "{s}.innerHTML", .{element.toString(allocator)}) catch unreachable,
         .value = .{ .value = .{ .string = html } },
     } };
 }

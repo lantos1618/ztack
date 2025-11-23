@@ -247,7 +247,9 @@ pub const Transpiler = struct {
 
     fn transpileExpr(self: *Transpiler, expr_idx: u32) ?js.JsExpression {
         const node_tags = self.tree.nodes.items(.tag);
+        const node_data = self.tree.nodes.items(.data);
         const main_tokens = self.tree.nodes.items(.main_token);
+        _ = node_data;
 
         const tag = node_tags[expr_idx];
 
@@ -276,9 +278,69 @@ pub const Transpiler = struct {
                 
                 return js.JsExpression{ .identifier = slice };
             },
+            .add => {
+                return self.transpileBinaryOp(expr_idx, "+");
+            },
+            .sub => {
+                return self.transpileBinaryOp(expr_idx, "-");
+            },
+            .mul => {
+                return self.transpileBinaryOp(expr_idx, "*");
+            },
+            .div => {
+                return self.transpileBinaryOp(expr_idx, "/");
+            },
+            .mod => {
+                return self.transpileBinaryOp(expr_idx, "%");
+            },
+            .equal_equal => {
+                return self.transpileBinaryOp(expr_idx, "==");
+            },
+            .bang_equal => {
+                return self.transpileBinaryOp(expr_idx, "!=");
+            },
+            .less_than => {
+                return self.transpileBinaryOp(expr_idx, "<");
+            },
+            .less_or_equal => {
+                return self.transpileBinaryOp(expr_idx, "<=");
+            },
+            .greater_than => {
+                return self.transpileBinaryOp(expr_idx, ">");
+            },
+            .greater_or_equal => {
+                return self.transpileBinaryOp(expr_idx, ">=");
+            },
             else => {
+                const warning = std.fmt.allocPrint(self.allocator, "Unsupported expression tag: {}", .{tag}) catch return null;
+                self.validator.warn(warning) catch {
+                    self.allocator.free(warning);
+                };
                 return null;
             },
         }
+    }
+
+    fn transpileBinaryOp(self: *Transpiler, expr_idx: u32, op: []const u8) ?js.JsExpression {
+        const node_data = self.tree.nodes.items(.data);
+        const lhs_idx = node_data[expr_idx].lhs;
+        const rhs_idx = node_data[expr_idx].rhs;
+
+        const left = self.transpileExpr(lhs_idx) orelse return null;
+        const right = self.transpileExpr(rhs_idx) orelse return null;
+
+        // Allocate storage for binary op pointers
+        const left_ptr = self.allocator.create(js.JsExpression) catch return null;
+        const right_ptr = self.allocator.create(js.JsExpression) catch return null;
+        left_ptr.* = left;
+        right_ptr.* = right;
+
+        return js.JsExpression{
+            .binary_op = .{
+                .left = left_ptr,
+                .operator = op,
+                .right = right_ptr,
+            },
+        };
     }
 };

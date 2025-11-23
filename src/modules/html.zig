@@ -1,5 +1,19 @@
 const std = @import("std");
 
+/// Escape HTML special characters to prevent XSS attacks
+fn escapeHtml(writer: anytype, text: []const u8) !void {
+    for (text) |char| {
+        switch (char) {
+            '&' => try writer.writeAll("&amp;"),
+            '<' => try writer.writeAll("&lt;"),
+            '>' => try writer.writeAll("&gt;"),
+            '"' => try writer.writeAll("&quot;"),
+            '\'' => try writer.writeAll("&#39;"),
+            else => try writer.writeByte(char),
+        }
+    }
+}
+
 pub const JsFunction = struct {
     name: []const u8,
     args: []const []const u8,
@@ -98,7 +112,7 @@ pub const Element = union(enum) {
 
     pub fn toString(self: Element, writer: anytype, indent: usize) !void {
         switch (self) {
-            .text => |t| try writer.writeAll(t),
+            .text => |t| try escapeHtml(writer, t),
             .div => |d| {
                 try writer.writeByteNTimes(' ', indent);
                 try writer.writeAll("<div");

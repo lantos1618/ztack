@@ -19,10 +19,10 @@ pub const JsValue = union(enum) {
         }
     }
 
-    pub fn toString(self: JsValue) []const u8 {
+    pub fn toString(self: JsValue, allocator: std.mem.Allocator) []const u8 {
         switch (self) {
-            .number => |n| return std.fmt.allocPrint(std.heap.page_allocator, "{d}", .{n}) catch unreachable,
-            .string => |s| return std.fmt.allocPrint(std.heap.page_allocator, "\"{s}\"", .{s}) catch unreachable,
+            .number => |n| return std.fmt.allocPrint(allocator, "{d}", .{n}) catch unreachable,
+            .string => |s| return std.fmt.allocPrint(allocator, "\"{s}\"", .{s}) catch unreachable,
             .boolean => |b| return if (b) "true" else "false",
             .null => return "null",
             .undefined => return "undefined",
@@ -117,61 +117,61 @@ pub const JsExpression = union(enum) {
         }
     }
 
-    pub fn toString(self: JsExpression) []const u8 {
+    pub fn toString(self: JsExpression, allocator: std.mem.Allocator) []const u8 {
         switch (self) {
-            .value => |v| return v.toString(),
+            .value => |v| return v.toString(allocator),
             .identifier => |i| return i,
             .binary_op => |b| {
-                const left = b.left.toString();
-                const right = b.right.toString();
-                return std.fmt.allocPrint(std.heap.page_allocator, "{s} {s} {s}", .{ left, b.operator, right }) catch unreachable;
+                const left = b.left.toString(allocator);
+                const right = b.right.toString(allocator);
+                return std.fmt.allocPrint(allocator, "{s} {s} {s}", .{ left, b.operator, right }) catch unreachable;
             },
             .unary_op => |u| {
-                const operand = u.operand.toString();
-                return std.fmt.allocPrint(std.heap.page_allocator, "{s}{s}", .{ u.operator, operand }) catch unreachable;
+                const operand = u.operand.toString(allocator);
+                return std.fmt.allocPrint(allocator, "{s}{s}", .{ u.operator, operand }) catch unreachable;
             },
             .property_access => |p| {
-                const obj = p.object.toString();
-                return std.fmt.allocPrint(std.heap.page_allocator, "{s}.{s}", .{ obj, p.property }) catch unreachable;
+                const obj = p.object.toString(allocator);
+                return std.fmt.allocPrint(allocator, "{s}.{s}", .{ obj, p.property }) catch unreachable;
             },
             .method_call => |m| {
-                const obj = m.object.toString();
-                var args_str = std.ArrayList(u8).init(std.heap.page_allocator);
+                const obj = m.object.toString(allocator);
+                var args_str = std.ArrayList(u8).init(allocator);
                 defer args_str.deinit();
                 for (m.args, 0..) |arg, i| {
                     if (i > 0) args_str.writer().writeAll(", ") catch unreachable;
-                    args_str.writer().writeAll(arg.toString()) catch unreachable;
+                    args_str.writer().writeAll(arg.toString(allocator)) catch unreachable;
                 }
-                return std.fmt.allocPrint(std.heap.page_allocator, "{s}.{s}({s})", .{ obj, m.method, args_str.items }) catch unreachable;
+                return std.fmt.allocPrint(allocator, "{s}.{s}({s})", .{ obj, m.method, args_str.items }) catch unreachable;
             },
             .function_call => |f| {
-                const func = f.function.toString();
-                var args_str = std.ArrayList(u8).init(std.heap.page_allocator);
+                const func = f.function.toString(allocator);
+                var args_str = std.ArrayList(u8).init(allocator);
                 defer args_str.deinit();
                 for (f.args, 0..) |arg, i| {
                     if (i > 0) args_str.writer().writeAll(", ") catch unreachable;
-                    args_str.writer().writeAll(arg.toString()) catch unreachable;
+                    args_str.writer().writeAll(arg.toString(allocator)) catch unreachable;
                 }
-                return std.fmt.allocPrint(std.heap.page_allocator, "{s}({s})", .{ func, args_str.items }) catch unreachable;
+                return std.fmt.allocPrint(allocator, "{s}({s})", .{ func, args_str.items }) catch unreachable;
             },
             .array_literal => |a| {
-                var items_str = std.ArrayList(u8).init(std.heap.page_allocator);
+                var items_str = std.ArrayList(u8).init(allocator);
                 defer items_str.deinit();
                 for (a, 0..) |item, i| {
                     if (i > 0) items_str.writer().writeAll(", ") catch unreachable;
-                    items_str.writer().writeAll(item.toString()) catch unreachable;
+                    items_str.writer().writeAll(item.toString(allocator)) catch unreachable;
                 }
-                return std.fmt.allocPrint(std.heap.page_allocator, "[{s}]", .{items_str.items}) catch unreachable;
+                return std.fmt.allocPrint(allocator, "[{s}]", .{items_str.items}) catch unreachable;
             },
             .object_literal => |o| {
-                var props_str = std.ArrayList(u8).init(std.heap.page_allocator);
+                var props_str = std.ArrayList(u8).init(allocator);
                 defer props_str.deinit();
                 for (o, 0..) |prop, i| {
                     if (i > 0) props_str.writer().writeAll(", ") catch unreachable;
-                    const value = prop.value.toString();
+                    const value = prop.value.toString(allocator);
                     props_str.writer().print("\"{s}\": {s}", .{ prop.key, value }) catch unreachable;
                 }
-                return std.fmt.allocPrint(std.heap.page_allocator, "{{{s}}}", .{props_str.items}) catch unreachable;
+                return std.fmt.allocPrint(allocator, "{{{s}}}", .{props_str.items}) catch unreachable;
             },
         }
     }
@@ -235,62 +235,62 @@ pub const JsStatement = union(enum) {
         }
     }
 
-    fn toStringWithIndent(self: JsStatement, indent: usize) []const u8 {
+    fn toStringWithIndent(self: JsStatement, allocator: std.mem.Allocator, indent: usize) []const u8 {
         switch (self) {
             .empty => return "",
             .expression => |e| {
-                var str = std.ArrayList(u8).init(std.heap.page_allocator);
+                var str = std.ArrayList(u8).init(allocator);
                 defer str.deinit();
                 addIndent(&str.writer(), indent) catch unreachable;
                 e.write(str.writer()) catch unreachable;
                 str.writer().writeAll(";") catch unreachable;
-                return std.fmt.allocPrint(std.heap.page_allocator, "{s}", .{str.items}) catch unreachable;
+                return std.fmt.allocPrint(allocator, "{s}", .{str.items}) catch unreachable;
             },
             .var_decl => |v| {
-                var str = std.ArrayList(u8).init(std.heap.page_allocator);
+                var str = std.ArrayList(u8).init(allocator);
                 defer str.deinit();
                 addIndent(&str.writer(), indent) catch unreachable;
                 str.writer().print("var {s} = ", .{v.name}) catch unreachable;
                 v.value.write(str.writer()) catch unreachable;
                 str.writer().writeAll(";") catch unreachable;
-                return std.fmt.allocPrint(std.heap.page_allocator, "{s}", .{str.items}) catch unreachable;
+                return std.fmt.allocPrint(allocator, "{s}", .{str.items}) catch unreachable;
             },
             .let_decl => |l| {
-                var str = std.ArrayList(u8).init(std.heap.page_allocator);
+                var str = std.ArrayList(u8).init(allocator);
                 defer str.deinit();
                 addIndent(&str.writer(), indent) catch unreachable;
                 str.writer().print("let {s} = ", .{l.name}) catch unreachable;
                 l.value.write(str.writer()) catch unreachable;
                 str.writer().writeAll(";") catch unreachable;
-                return std.fmt.allocPrint(std.heap.page_allocator, "{s}", .{str.items}) catch unreachable;
+                return std.fmt.allocPrint(allocator, "{s}", .{str.items}) catch unreachable;
             },
             .const_decl => |c| {
-                var str = std.ArrayList(u8).init(std.heap.page_allocator);
+                var str = std.ArrayList(u8).init(allocator);
                 defer str.deinit();
                 addIndent(&str.writer(), indent) catch unreachable;
                 str.writer().print("const {s} = ", .{c.name}) catch unreachable;
                 c.value.write(str.writer()) catch unreachable;
                 str.writer().writeAll(";") catch unreachable;
-                return std.fmt.allocPrint(std.heap.page_allocator, "{s}", .{str.items}) catch unreachable;
+                return std.fmt.allocPrint(allocator, "{s}", .{str.items}) catch unreachable;
             },
             .assign => |a| {
-                var str = std.ArrayList(u8).init(std.heap.page_allocator);
+                var str = std.ArrayList(u8).init(allocator);
                 defer str.deinit();
                 addIndent(&str.writer(), indent) catch unreachable;
                 str.writer().print("{s} = ", .{a.target}) catch unreachable;
                 a.value.write(str.writer()) catch unreachable;
                 str.writer().writeAll(";") catch unreachable;
-                return std.fmt.allocPrint(std.heap.page_allocator, "{s}", .{str.items}) catch unreachable;
+                return std.fmt.allocPrint(allocator, "{s}", .{str.items}) catch unreachable;
             },
             .if_stmt => |i| {
-                var str = std.ArrayList(u8).init(std.heap.page_allocator);
+                var str = std.ArrayList(u8).init(allocator);
                 defer str.deinit();
                 addIndent(&str.writer(), indent) catch unreachable;
                 str.writer().writeAll("if (") catch unreachable;
                 i.condition.write(str.writer()) catch unreachable;
                 str.writer().writeAll(") {\n") catch unreachable;
                 for (i.body) |stmt| {
-                    const stmt_str = stmt.toStringWithIndent(indent + 1);
+                    const stmt_str = stmt.toStringWithIndent(allocator, indent + 1);
                     str.writer().print("{s}\n", .{stmt_str}) catch unreachable;
                 }
                 addIndent(&str.writer(), indent) catch unreachable;
@@ -298,93 +298,93 @@ pub const JsStatement = union(enum) {
                 if (i.else_body) |else_body| {
                     str.writer().writeAll(" else {\n") catch unreachable;
                     for (else_body) |stmt| {
-                        const stmt_str = stmt.toStringWithIndent(indent + 1);
+                        const stmt_str = stmt.toStringWithIndent(allocator, indent + 1);
                         str.writer().print("{s}\n", .{stmt_str}) catch unreachable;
                     }
                     addIndent(&str.writer(), indent) catch unreachable;
                     str.writer().writeAll("}") catch unreachable;
                 }
-                return std.fmt.allocPrint(std.heap.page_allocator, "{s}", .{str.items}) catch unreachable;
+                return std.fmt.allocPrint(allocator, "{s}", .{str.items}) catch unreachable;
             },
             .while_stmt => |w| {
-                var str = std.ArrayList(u8).init(std.heap.page_allocator);
+                var str = std.ArrayList(u8).init(allocator);
                 defer str.deinit();
                 addIndent(&str.writer(), indent) catch unreachable;
                 str.writer().writeAll("while (") catch unreachable;
                 w.condition.write(str.writer()) catch unreachable;
                 str.writer().writeAll(") {\n") catch unreachable;
                 for (w.body) |stmt| {
-                    const stmt_str = stmt.toStringWithIndent(indent + 1);
+                    const stmt_str = stmt.toStringWithIndent(allocator, indent + 1);
                     str.writer().print("{s}\n", .{stmt_str}) catch unreachable;
                 }
                 addIndent(&str.writer(), indent) catch unreachable;
                 str.writer().writeAll("}") catch unreachable;
-                return std.fmt.allocPrint(std.heap.page_allocator, "{s}", .{str.items}) catch unreachable;
+                return std.fmt.allocPrint(allocator, "{s}", .{str.items}) catch unreachable;
             },
             .for_stmt => |f| {
-                var str = std.ArrayList(u8).init(std.heap.page_allocator);
+                var str = std.ArrayList(u8).init(allocator);
                 defer str.deinit();
                 addIndent(&str.writer(), indent) catch unreachable;
                 str.writer().writeAll("for (") catch unreachable;
                 if (f.init) |init| {
-                    const init_str = init.toStringWithIndent(0);
+                    const init_str = init.toStringWithIndent(allocator, 0);
                     str.writer().writeAll(init_str) catch unreachable;
                 }
                 str.writer().writeAll("; ") catch unreachable;
                 if (f.condition) |cond| {
-                    const cond_str = cond.toString();
+                    const cond_str = cond.toString(allocator);
                     str.writer().writeAll(cond_str) catch unreachable;
                 }
                 str.writer().writeAll("; ") catch unreachable;
                 if (f.update) |update| {
-                    const upd_str = update.toString();
+                    const upd_str = update.toString(allocator);
                     str.writer().writeAll(upd_str) catch unreachable;
                 }
                 str.writer().writeAll(") {\n") catch unreachable;
                 for (f.body) |stmt| {
-                    const stmt_str = stmt.toStringWithIndent(indent + 1);
+                    const stmt_str = stmt.toStringWithIndent(allocator, indent + 1);
                     str.writer().print("{s}\n", .{stmt_str}) catch unreachable;
                 }
                 addIndent(&str.writer(), indent) catch unreachable;
                 str.writer().writeAll("}") catch unreachable;
-                return std.fmt.allocPrint(std.heap.page_allocator, "{s}", .{str.items}) catch unreachable;
+                return std.fmt.allocPrint(allocator, "{s}", .{str.items}) catch unreachable;
             },
             .for_of_stmt => |f| {
-                var str = std.ArrayList(u8).init(std.heap.page_allocator);
+                var str = std.ArrayList(u8).init(allocator);
                 defer str.deinit();
                 addIndent(&str.writer(), indent) catch unreachable;
                 str.writer().print("for (const {s} of ", .{f.iterator}) catch unreachable;
                 f.iterable.write(str.writer()) catch unreachable;
                 str.writer().writeAll(") {\n") catch unreachable;
                 for (f.body) |stmt| {
-                    const stmt_str = stmt.toStringWithIndent(indent + 1);
+                    const stmt_str = stmt.toStringWithIndent(allocator, indent + 1);
                     str.writer().print("{s}\n", .{stmt_str}) catch unreachable;
                 }
                 addIndent(&str.writer(), indent) catch unreachable;
                 str.writer().writeAll("}") catch unreachable;
-                return std.fmt.allocPrint(std.heap.page_allocator, "{s}", .{str.items}) catch unreachable;
+                return std.fmt.allocPrint(allocator, "{s}", .{str.items}) catch unreachable;
             },
             .try_stmt => |t| {
-                var str = std.ArrayList(u8).init(std.heap.page_allocator);
+                var str = std.ArrayList(u8).init(allocator);
                 defer str.deinit();
                 addIndent(&str.writer(), indent) catch unreachable;
                 str.writer().writeAll("try {\n") catch unreachable;
                 for (t.body) |stmt| {
-                    const stmt_str = stmt.toStringWithIndent(indent + 1);
+                    const stmt_str = stmt.toStringWithIndent(allocator, indent + 1);
                     str.writer().print("{s}\n", .{stmt_str}) catch unreachable;
                 }
                 addIndent(&str.writer(), indent) catch unreachable;
                 str.writer().writeAll("} catch (error) {\n") catch unreachable;
                 for (t.catch_body) |stmt| {
-                    const stmt_str = stmt.toStringWithIndent(indent + 1);
+                    const stmt_str = stmt.toStringWithIndent(allocator, indent + 1);
                     str.writer().print("{s}\n", .{stmt_str}) catch unreachable;
                 }
                 addIndent(&str.writer(), indent) catch unreachable;
                 str.writer().writeAll("}") catch unreachable;
-                return std.fmt.allocPrint(std.heap.page_allocator, "{s}", .{str.items}) catch unreachable;
+                return std.fmt.allocPrint(allocator, "{s}", .{str.items}) catch unreachable;
             },
             .return_stmt => |r| {
-                var str = std.ArrayList(u8).init(std.heap.page_allocator);
+                var str = std.ArrayList(u8).init(allocator);
                 defer str.deinit();
                 addIndent(&str.writer(), indent) catch unreachable;
                 if (r) |expr| {
@@ -394,23 +394,23 @@ pub const JsStatement = union(enum) {
                 } else {
                     str.writer().writeAll("return;") catch unreachable;
                 }
-                return std.fmt.allocPrint(std.heap.page_allocator, "{s}", .{str.items}) catch unreachable;
+                return std.fmt.allocPrint(allocator, "{s}", .{str.items}) catch unreachable;
             },
             .block => |b| {
-                var str = std.ArrayList(u8).init(std.heap.page_allocator);
+                var str = std.ArrayList(u8).init(allocator);
                 defer str.deinit();
                 addIndent(&str.writer(), indent) catch unreachable;
                 str.writer().writeAll("{\n") catch unreachable;
                 for (b) |stmt| {
-                    const stmt_str = stmt.toStringWithIndent(indent + 1);
+                    const stmt_str = stmt.toStringWithIndent(allocator, indent + 1);
                     str.writer().print("{s}\n", .{stmt_str}) catch unreachable;
                 }
                 addIndent(&str.writer(), indent) catch unreachable;
                 str.writer().writeAll("}") catch unreachable;
-                return std.fmt.allocPrint(std.heap.page_allocator, "{s}", .{str.items}) catch unreachable;
+                return std.fmt.allocPrint(allocator, "{s}", .{str.items}) catch unreachable;
             },
             .function_decl => |f| {
-                var str = std.ArrayList(u8).init(std.heap.page_allocator);
+                var str = std.ArrayList(u8).init(allocator);
                 defer str.deinit();
                 addIndent(&str.writer(), indent) catch unreachable;
                 str.writer().print("function {s}(", .{f.name}) catch unreachable;
@@ -420,12 +420,12 @@ pub const JsStatement = union(enum) {
                 }
                 str.writer().writeAll(") {\n") catch unreachable;
                 for (f.body) |stmt| {
-                    const stmt_str = stmt.toStringWithIndent(indent + 1);
+                    const stmt_str = stmt.toStringWithIndent(allocator, indent + 1);
                     str.writer().print("{s}\n", .{stmt_str}) catch unreachable;
                 }
                 addIndent(&str.writer(), indent) catch unreachable;
                 str.writer().writeAll("}\n") catch unreachable;
-                return std.fmt.allocPrint(std.heap.page_allocator, "{s}", .{str.items}) catch unreachable;
+                return std.fmt.allocPrint(allocator, "{s}", .{str.items}) catch unreachable;
             },
         }
     }
@@ -499,7 +499,7 @@ pub const JsStatement = union(enum) {
                 try addIndent(writer, indent);
                 try writer.writeAll("for (");
                 if (f.init) |init| {
-                    const init_str = init.toStringWithIndent(0);
+                    const init_str = init.toStringWithIndent(std.heap.page_allocator, 0);
                     try writer.writeAll(init_str);
                 }
                 try writer.writeAll("; ");
@@ -584,7 +584,7 @@ pub const JsStatement = union(enum) {
         }
     }
 
-    pub fn toString(self: JsStatement) []const u8 {
-        return self.toStringWithIndent(0);
+    pub fn toString(self: JsStatement, allocator: std.mem.Allocator) []const u8 {
+        return self.toStringWithIndent(allocator, 0);
     }
 };

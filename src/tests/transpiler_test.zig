@@ -22,6 +22,6 @@ pub fn main() !void {
 
     for (statements, 0..) |stmt, i| {
         std.debug.print("Statement {}:\n", .{i});
-        std.debug.print("  {s}\n\n", .{stmt.toString()});
+        std.debug.print("  {s}\n\n", .{stmt.toString(allocator)});
     }
 }

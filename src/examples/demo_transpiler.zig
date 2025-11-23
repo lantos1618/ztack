@@ -27,7 +27,7 @@ pub fn main() !void {
         std.debug.print("─────────────────────────────────────────────────────────\n", .{});
         std.debug.print("Function {}: \n", .{i});
         std.debug.print("─────────────────────────────────────────────────────────\n", .{});
-        std.debug.print("{s}\n\n", .{stmt.toString()});
+        std.debug.print("{s}\n\n", .{stmt.toString(allocator)});
     }
 
     std.debug.print("✨ Transpilation complete!\n\n", .{});
