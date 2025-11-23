@@ -38,30 +38,39 @@ pub fn build(b: *std.Build) void {
     demo_exe.root_module.addImport("js", js_module);
     b.installArtifact(demo_exe);
 
-    // Add wasm target
-    const wasm_target: std.Target.Query = .{
-        .cpu_arch = .wasm32,
-        .os_tag = .freestanding,
-    };
-
-    // Create wasm module
-    const wasm = b.addExecutable(.{
-        .name = "wasm_main",
-        .root_source_file = b.path("src/routes/wasm_example/wasm_main.zig"),
-        .target = b.resolveTargetQuery(wasm_target),
+    // Simple server executable (no dependencies)
+    const server_exe = b.addExecutable(.{
+        .name = "js_counter",
+        .root_source_file = b.path("src/examples/simple_server.zig"),
+        .target = target,
         .optimize = optimize,
     });
-    wasm.entry = .disabled;
+    b.installArtifact(server_exe);
 
-    // Install wasm file to public folder
-    const wasm_install = b.addInstallArtifact(wasm, .{
-        .dest_dir = .{ .override = .{ .custom = "public" } },
-    });
+    // // Add wasm target
+    // const wasm_target: std.Target.Query = .{
+    //     .cpu_arch = .wasm32,
+    //     .os_tag = .freestanding,
+    // };
+
+    // // Create wasm module
+    // const wasm = b.addExecutable(.{
+    //     .name = "wasm_main",
+    //     .root_source_file = b.path("src/routes/wasm_example/wasm_main.zig"),
+    //     .target = b.resolveTargetQuery(wasm_target),
+    //     .optimize = optimize,
+    // });
+    // wasm.entry = .disabled;
+
+    // // Install wasm file to public folder
+    // const wasm_install = b.addInstallArtifact(wasm, .{
+    //     .dest_dir = .{ .override = .{ .custom = "public" } },
+    // });
 
     // Main executable
     const exe = b.addExecutable(.{
         .name = "zig_test",
-        .root_source_file = b.path("src/examples/js_counter/main.zig"),
+        .root_source_file = b.path("src/examples/simple_server.zig"),
         .target = target,
         .optimize = optimize,
     });
@@ -75,7 +84,7 @@ pub fn build(b: *std.Build) void {
 
     const run_cmd = b.addRunArtifact(exe);
     run_cmd.step.dependOn(b.getInstallStep());
-    run_cmd.step.dependOn(&wasm_install.step); // Make sure wasm is built before running server
+    // run_cmd.step.dependOn(&wasm_install.step); // Make sure wasm is built before running server
 
     if (b.args) |args| {
         run_cmd.addArgs(args);
