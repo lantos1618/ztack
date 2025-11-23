@@ -11,13 +11,13 @@ pub fn build(b: *std.Build) void {
     // });
 
     // Create modules
-    const html_module = b.addModule("html", .{
-        .root_source_file = b.path("src/modules/html.zig"),
-    });
+    // const html_module = b.addModule("html", .{
+    //     .root_source_file = b.path("src/modules/html.zig"),
+    // });
 
-    const dom_module = b.addModule("dom", .{
-        .root_source_file = b.path("src/modules/dom.zig"),
-    });
+    // const dom_module = b.addModule("dom", .{
+    //     .root_source_file = b.path("src/modules/dom.zig"),
+    // });
 
     const js_module = b.addModule("js", .{
         .root_source_file = b.path("src/modules/js.zig"),
@@ -51,15 +51,15 @@ pub fn build(b: *std.Build) void {
     // Main executable
     const exe = b.addExecutable(.{
         .name = "zig_test",
-        .root_source_file = b.path("src/examples/main.zig"),
+        .root_source_file = b.path("src/examples/js_counter/main.zig"),
         .target = target,
         .optimize = optimize,
     });
 
     // Add module dependencies
     // exe.root_module.addImport("zap", zap.module("zap"));
-    exe.root_module.addImport("html", html_module);
-    exe.root_module.addImport("dom", dom_module);
+    // exe.root_module.addImport("html", html_module);
+    // exe.root_module.addImport("dom", dom_module);
 
     b.installArtifact(exe);
 

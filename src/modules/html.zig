@@ -78,49 +78,7 @@ pub const Element = union(enum) {
         onclick: ?[]const u8 = null,
     };
 
-    // Helper functions
-    pub fn text(content: []const u8) Element {
-        return .{ .text = content };
-    }
-
-    pub fn div(class_or_id: ?[]const u8, children: []const Element) Element {
-        if (class_or_id) |value| {
-            if (std.mem.startsWith(u8, value, "#")) {
-                return .{ .div = .{ .id = value[1..], .children = children } };
-            } else {
-                return .{ .div = .{ .class = value, .children = children } };
-            }
-        }
-        return .{ .div = .{ .children = children } };
-    }
-
-    pub fn h1(class: ?[]const u8, children: []const Element) Element {
-        return .{ .h1 = .{ .class = class, .children = children } };
-    }
-
-    pub fn h2(class: ?[]const u8, children: []const Element) Element {
-        return .{ .h2 = .{ .class = class, .children = children } };
-    }
-
-    pub fn script(src_or_content: []const u8, is_src: bool) Element {
-        if (is_src) {
-            return .{ .script = .{ .src = src_or_content } };
-        } else {
-            return .{ .script = .{ .content = src_or_content } };
-        }
-    }
-
-    pub fn scriptWithFunctions(functions: []const JsFunction) Element {
-        return .{ .script = .{ .functions = functions } };
-    }
-
-    pub fn meta(charset: []const u8) Element {
-        return .{ .meta = .{ .charset = charset } };
-    }
-
-    pub fn title(children: []const Element) Element {
-        return .{ .title = .{ .children = children } };
-    }
+    // Helper functions - moved outside union to avoid name conflicts
 
     fn functionToJs(func: JsFunction, writer: anytype, indent: usize) !void {
         try writer.writeByteNTimes(' ', indent);
@@ -314,6 +272,50 @@ pub const Element = union(enum) {
         }
     }
 };
+
+// Element helper methods as namespace functions  
+pub fn text(content: []const u8) Element {
+    return .{ .text = content };
+}
+
+pub fn div(class_or_id: ?[]const u8, children: []const Element) Element {
+    if (class_or_id) |value| {
+        if (std.mem.startsWith(u8, value, "#")) {
+            return .{ .div = .{ .id = value[1..], .children = children } };
+        } else {
+            return .{ .div = .{ .class = value, .children = children } };
+        }
+    }
+    return .{ .div = .{ .children = children } };
+}
+
+pub fn h1(class: ?[]const u8, children: []const Element) Element {
+    return .{ .h1 = .{ .class = class, .children = children } };
+}
+
+pub fn h2(class: ?[]const u8, children: []const Element) Element {
+    return .{ .h2 = .{ .class = class, .children = children } };
+}
+
+pub fn script(src_or_content: []const u8, is_src: bool) Element {
+    if (is_src) {
+        return .{ .script = .{ .src = src_or_content } };
+    } else {
+        return .{ .script = .{ .content = src_or_content } };
+    }
+}
+
+pub fn scriptWithFunctions(functions: []const JsFunction) Element {
+    return .{ .script = .{ .functions = functions } };
+}
+
+pub fn meta(charset: []const u8) Element {
+    return .{ .meta = .{ .charset = charset } };
+}
+
+pub fn title(children: []const Element) Element {
+    return .{ .title = .{ .children = children } };
+}
 
 pub const HtmlDocument = struct {
     allocator: std.mem.Allocator,
