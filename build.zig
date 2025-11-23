@@ -28,6 +28,16 @@ pub fn build(b: *std.Build) void {
     });
     transpiler_module.addImport("js", js_module);
 
+    // Demo transpiler executable
+    const demo_exe = b.addExecutable(.{
+        .name = "demo_transpiler",
+        .root_source_file = b.path("src/examples/demo_transpiler.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    demo_exe.root_module.addImport("js", js_module);
+    b.installArtifact(demo_exe);
+
     // Add wasm target
     const wasm_target: std.Target.Query = .{
         .cpu_arch = .wasm32,
