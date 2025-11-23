@@ -59,6 +59,28 @@ pub fn build(b: *std.Build) void {
     });
     b.installArtifact(wasm_server_exe);
 
+    // WASM compilation target
+    const wasm_target = b.resolveTargetQuery(.{
+        .cpu_arch = .wasm32,
+        .os_tag = .freestanding,
+    });
+
+    // Build the WASM module (handlers.zig is the transpiled code)
+    const wasm_lib = b.addExecutable(.{
+        .name = "wasm_main",
+        .root_source_file = b.path("src/examples/wasm_counter/handlers.zig"),
+        .target = wasm_target,
+        .optimize = .ReleaseSmall,
+    });
+    wasm_lib.entry = .disabled;
+    wasm_lib.rdynamic = true;
+
+    // Install WASM to public directory
+    const install_wasm = b.addInstallArtifact(wasm_lib, .{
+        .dest_dir = .{ .override = .{ .custom = "public" } },
+    });
+    b.getInstallStep().dependOn(&install_wasm.step);
+
     // Main run step
     const run_cmd = b.addRunArtifact(server_exe);
     run_cmd.step.dependOn(b.getInstallStep());

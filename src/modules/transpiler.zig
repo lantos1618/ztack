@@ -38,29 +38,31 @@ pub const ScriptValidator = struct {
 };
 
 pub const Transpiler = struct {
-    allocator: std.mem.Allocator,
+    arena: std.mem.Allocator,
+    parent_allocator: std.mem.Allocator,
     tree: std.zig.Ast,
     source: [:0]const u8,
     validator: ScriptValidator,
 
-    pub fn init(allocator: std.mem.Allocator, source: [:0]const u8) !Transpiler {
-        const tree = try std.zig.Ast.parse(allocator, source, .zig);
+    pub fn init(parent_allocator: std.mem.Allocator, source: [:0]const u8) !Transpiler {
+        const tree = try std.zig.Ast.parse(parent_allocator, source, .zig);
         return .{
-            .allocator = allocator,
+            .arena = parent_allocator,
+            .parent_allocator = parent_allocator,
             .tree = tree,
             .source = source,
-            .validator = ScriptValidator.init(allocator),
+            .validator = ScriptValidator.init(parent_allocator),
         };
     }
 
     pub fn deinit(self: *Transpiler) void {
-        self.tree.deinit(self.allocator);
+        self.tree.deinit(self.parent_allocator);
         self.validator.deinit();
     }
 
     /// Convert Zig AST to JavaScript statements
     pub fn transpile(self: *Transpiler) ![]const js.JsStatement {
-        var statements = std.ArrayList(js.JsStatement).init(self.allocator);
+        var statements = std.ArrayList(js.JsStatement).init(self.arena);
         defer statements.deinit();
 
         const root_decls = self.tree.rootDecls();
@@ -111,14 +113,14 @@ pub const Transpiler = struct {
             const proto_rhs = fn_proto_data.rhs;
             if (proto_rhs > proto_lhs and proto_lhs != 0) {
                 // Has parameters
-                const warning = try std.fmt.allocPrint(self.allocator, "Function '{s}' has parameters, which are not yet supported and will be ignored", .{fn_name});
+                const warning = try std.fmt.allocPrint(self.arena, "Function '{s}' has parameters, which are not yet supported and will be ignored", .{fn_name});
                 try self.validator.warn(warning);
-                self.allocator.free(warning);
+                self.arena.free(warning);
             }
         }
 
         // Get function body statements
-        var body_statements = std.ArrayList(js.JsStatement).init(self.allocator);
+        var body_statements = std.ArrayList(js.JsStatement).init(self.arena);
         defer body_statements.deinit();
 
         const body_tag = node_tags[fn_body_idx];
@@ -217,7 +219,7 @@ pub const Transpiler = struct {
 
         const condition = self.transpileExpr(condition_idx) orelse js.JsExpression{ .value = .{ .boolean = false } };
 
-        var body_statements = std.ArrayList(js.JsStatement).init(self.allocator);
+        var body_statements = std.ArrayList(js.JsStatement).init(self.arena);
         defer body_statements.deinit();
 
         const body_tag = node_tags[body_idx];
@@ -263,7 +265,12 @@ pub const Transpiler = struct {
             .string_literal => {
                 const token = main_tokens[expr_idx];
                 const slice = self.tree.tokenSlice(token);
-                return js.JsExpression{ .value = .{ .string = slice } };
+                // Trim surrounding quotes from Zig token
+                const trimmed = if (slice.len >= 2 and slice[0] == '"' and slice[slice.len - 1] == '"')
+                    slice[1 .. slice.len - 1]
+                else
+                    slice;
+                return js.JsExpression{ .value = .{ .string = trimmed } };
             },
             .identifier => {
                 const token = main_tokens[expr_idx];
@@ -311,10 +318,13 @@ pub const Transpiler = struct {
             .greater_or_equal => {
                 return self.transpileBinaryOp(expr_idx, ">=");
             },
+            .call_one, .call => {
+                return self.transpileCall(expr_idx);
+            },
             else => {
-                const warning = std.fmt.allocPrint(self.allocator, "Unsupported expression tag: {}", .{tag}) catch return null;
+                const warning = std.fmt.allocPrint(self.arena, "Unsupported expression tag: {}", .{tag}) catch return null;
                 self.validator.warn(warning) catch {
-                    self.allocator.free(warning);
+                    self.arena.free(warning);
                 };
                 return null;
             },
@@ -330,8 +340,8 @@ pub const Transpiler = struct {
         const right = self.transpileExpr(rhs_idx) orelse return null;
 
         // Allocate storage for binary op pointers
-        const left_ptr = self.allocator.create(js.JsExpression) catch return null;
-        const right_ptr = self.allocator.create(js.JsExpression) catch return null;
+        const left_ptr = self.arena.create(js.JsExpression) catch return null;
+        const right_ptr = self.arena.create(js.JsExpression) catch return null;
         left_ptr.* = left;
         right_ptr.* = right;
 
@@ -340,6 +350,47 @@ pub const Transpiler = struct {
                 .left = left_ptr,
                 .operator = op,
                 .right = right_ptr,
+            },
+        };
+    }
+
+    fn transpileCall(self: *Transpiler, expr_idx: u32) ?js.JsExpression {
+        const node_data = self.tree.nodes.items(.data);
+        const node_tags = self.tree.nodes.items(.tag);
+
+        // Get the function being called
+        const fn_idx = node_data[expr_idx].lhs;
+        const fn_expr = self.transpileExpr(fn_idx) orelse return null;
+
+        // Get argument indices
+        var args = std.ArrayList(js.JsExpression).init(self.arena);
+        defer args.deinit();
+
+        const tag = node_tags[expr_idx];
+        if (tag == .call_one) {
+            // Single argument call
+            const arg_idx = node_data[expr_idx].rhs;
+            if (self.transpileExpr(arg_idx)) |arg| {
+                args.append(arg) catch return null;
+            }
+        } else if (tag == .call) {
+            // Multiple arguments - For now, warn and skip
+            // (Call parsing requires more complex AST traversal)
+            const warning = std.fmt.allocPrint(self.arena, "Multi-argument function calls not yet fully supported", .{}) catch return null;
+            self.validator.warn(warning) catch {
+                self.arena.free(warning);
+            };
+        }
+
+        const fn_ptr = self.arena.create(js.JsExpression) catch return null;
+        fn_ptr.* = fn_expr;
+
+        const args_slice = args.toOwnedSlice() catch return null;
+
+        return js.JsExpression{
+            .function_call = .{
+                .function = fn_ptr,
+                .args = args_slice,
             },
         };
     }
