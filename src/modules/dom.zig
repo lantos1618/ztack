@@ -1,5 +1,5 @@
 const std = @import("std");
-const js = @import("js_gen");
+const js = @import("js");
 
 /// DOM API functions that map to JavaScript
 pub fn alert(msg: []const u8) js.JsExpression {

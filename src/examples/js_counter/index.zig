@@ -1,6 +1,8 @@
 const std = @import("std");
 const html = @import("html");
 const zap = @import("zap");
+const handlers = @import("handlers.zig");
+const transpiler = @import("../../modules/transpiler.zig");
 
 pub fn generateHtml(allocator: std.mem.Allocator) ![]const u8 {
     var doc = html.HtmlDocument.init(allocator);
@@ -8,28 +10,15 @@ pub fn generateHtml(allocator: std.mem.Allocator) ![]const u8 {
     const head_elements = [_]html.Element{
         html.Element.meta("utf-8"),
         html.Element.title(&[_]html.Element{
-            html.Element.text("Zig Click Counter"),
+            html.Element.text("Zig Click Counter - JavaScript"),
         }),
         html.Element.script("https://cdn.tailwindcss.com", true),
     };
 
-    // Transpile handler functions from Zig to JavaScript at compile-time
-    // NOTE: Using direct string literals here due to comptime buffer isolation issue
-    const handleClick_body = 
-        "const counter = document.querySelector(\"#counter\");\n" ++
-        "const count_str = counter.innerText;\n" ++
-        "const count = parseInt(count_str);\n" ++
-        "const new_count = count + 1;\n" ++
-        "counter.innerText = \"\";\n" ++
-        "if (new_count == 10) {\n" ++
-        "  window.alert(\"You've clicked 10 times! Keep going!\");\n" ++
-        "}";
-
-    const setupListeners_body = 
-        "const button = document.querySelector(\"#clickButton\");\n" ++
-        "button.addEventListener(\"click\", handleClick)";
-
-    const initPage_body = "setupListeners()";
+    // Transpile handler functions from handlers.zig at comptime
+    const handleClick_body = comptime transpiler.transpileHandlerBody(std.heap.page_allocator, "handlers.zig", "handleClick") catch "// Transpilation error";
+    const setupListeners_body = comptime transpiler.transpileHandlerBody(std.heap.page_allocator, "handlers.zig", "setupListeners") catch "// Transpilation error";
+    const initPage_body = comptime transpiler.transpileHandlerBody(std.heap.page_allocator, "handlers.zig", "initPage") catch "// Transpilation error";
 
     const js_functions = [_]html.JsFunction{
         .{
@@ -61,7 +50,7 @@ pub fn generateHtml(allocator: std.mem.Allocator) ![]const u8 {
                     &[_]html.Element{
                         html.Element.h1(
                             "text-5xl font-bold mb-8 bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-purple-500",
-                            &[_]html.Element{html.Element.text("Zig Click Counter")},
+                            &[_]html.Element{html.Element.text("Zig Click Counter (JavaScript)")},
                         ),
                         html.Element.div(
                             "space-y-4",
@@ -108,20 +97,12 @@ pub fn generateHtml(allocator: std.mem.Allocator) ![]const u8 {
                                         html.Element.text("Zig"),
                                     },
                                 } },
-                                html.Element.text(" and "),
+                                html.Element.text(" using Zig→JavaScript transpilation • "),
                                 html.Element{ .a = .{
                                     .href = "https://tailwindcss.com",
                                     .class = "text-blue-400 hover:text-blue-300",
                                     .children = &[_]html.Element{
                                         html.Element.text("Tailwind CSS"),
-                                    },
-                                } },
-                                html.Element.text(" • "),
-                                html.Element{ .a = .{
-                                    .href = "/wasm",
-                                    .class = "text-blue-400 hover:text-blue-300",
-                                    .children = &[_]html.Element{
-                                        html.Element.text("Try WASM Demo"),
                                     },
                                 } },
                             },

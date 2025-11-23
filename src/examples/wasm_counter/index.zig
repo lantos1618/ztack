@@ -1,6 +1,6 @@
 const std = @import("std");
 const html = @import("html");
-const js = @import("js_gen");
+const js = @import("js");
 const dom = @import("dom");
 const zap = @import("zap");
 
