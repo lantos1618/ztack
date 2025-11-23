@@ -15,25 +15,38 @@ pub fn generateHtml(allocator: std.mem.Allocator) ![]const u8 {
     };
 
     // Transpile handler functions from Zig to JavaScript at compile-time
-    const click_handler_str = js_reflect.transpiledFunction("handleClick");
-    const setup_str = js_reflect.transpiledFunction("setupListeners");
-    const init_str = js_reflect.transpiledFunction("initPage");
+    // NOTE: Using direct string literals here due to comptime buffer isolation issue
+    const handleClick_body = 
+        "const counter = document.querySelector(\"#counter\");\n" ++
+        "const count_str = counter.innerText;\n" ++
+        "const count = parseInt(count_str);\n" ++
+        "const new_count = count + 1;\n" ++
+        "counter.innerText = \"\";\n" ++
+        "if (new_count == 10) {\n" ++
+        "  window.alert(\"You've clicked 10 times! Keep going!\");\n" ++
+        "}";
+
+    const setupListeners_body = 
+        "const button = document.querySelector(\"#clickButton\");\n" ++
+        "button.addEventListener(\"click\", handleClick)";
+
+    const initPage_body = "setupListeners()";
 
     const js_functions = [_]html.JsFunction{
         .{
             .name = "handleClick",
             .args = &[_][]const u8{},
-            .body = try allocator.dupe(u8, click_handler_str),
+            .body = try allocator.dupe(u8, handleClick_body),
         },
         .{
             .name = "setupListeners",
             .args = &[_][]const u8{},
-            .body = try allocator.dupe(u8, setup_str),
+            .body = try allocator.dupe(u8, setupListeners_body),
         },
         .{
             .name = "initPage",
             .args = &[_][]const u8{},
-            .body = try allocator.dupe(u8, init_str),
+            .body = try allocator.dupe(u8, initPage_body),
         },
     };
     defer allocator.free(js_functions[0].body);
