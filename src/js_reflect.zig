@@ -47,6 +47,40 @@ pub fn toJsBody(comptime func: anytype, comptime name: []const u8) []const js.Js
     return analyzeBodyViaAst(name);
 }
 
+/// Transpile a function and all its dependencies
+/// Returns the complete set of function declarations with all transitive dependencies
+pub fn transpiledWithDeps(comptime func_name: []const u8) []const js.JsStatement {
+    const source = @embedFile("routes/index.zig");
+    
+    var tree = std.zig.Ast.parse(std.heap.page_allocator, source, .zig) catch |err| {
+        @compileError("Failed to parse AST: " ++ @errorName(err));
+    };
+    defer tree.deinit(std.heap.page_allocator);
+    
+    // Start with the requested function
+    var functions: [64]js.JsStatement = undefined;
+    var func_count: usize = 0;
+    var seen: [64][]const u8 = undefined;
+    var seen_count: usize = 0;
+    
+    // Transpile the function and track dependencies
+    transpilesWithDepsRecursive(&tree, func_name, &functions, &func_count, &seen, &seen_count);
+    
+    // Return array based on count
+    return switch (func_count) {
+        0 => &[_]js.JsStatement{},
+        1 => &[_]js.JsStatement{functions[0]},
+        2 => &[_]js.JsStatement{functions[0], functions[1]},
+        3 => &[_]js.JsStatement{functions[0], functions[1], functions[2]},
+        4 => &[_]js.JsStatement{functions[0], functions[1], functions[2], functions[3]},
+        5 => &[_]js.JsStatement{functions[0], functions[1], functions[2], functions[3], functions[4]},
+        6 => &[_]js.JsStatement{functions[0], functions[1], functions[2], functions[3], functions[4], functions[5]},
+        7 => &[_]js.JsStatement{functions[0], functions[1], functions[2], functions[3], functions[4], functions[5], functions[6]},
+        8 => &[_]js.JsStatement{functions[0], functions[1], functions[2], functions[3], functions[4], functions[5], functions[6], functions[7]},
+        else => &[_]js.JsStatement{},
+    };
+}
+
 fn analyzeBodyViaAst(comptime func_name: []const u8) []const js.JsStatement {
     // Use Zig's built-in AST parser to parse the current file
     const source = @embedFile("routes/index.zig");
@@ -97,6 +131,174 @@ fn analyzeBodyViaAst(comptime func_name: []const u8) []const js.JsStatement {
 
 fn buildStatementArray(comptime stmts: anytype) []const js.JsStatement {
     return &stmts;
+}
+
+fn isAlreadySeen(comptime name: []const u8, comptime seen: *[64][]const u8, comptime seen_count: usize) bool {
+    for (0..seen_count) |i| {
+        if (std.mem.eql(u8, seen[i], name)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+fn transpilesWithDepsRecursive(
+    comptime tree: *const std.zig.Ast,
+    comptime func_name: []const u8,
+    comptime functions: *[64]js.JsStatement,
+    comptime func_count: *usize,
+    comptime seen: *[64][]const u8,
+    comptime seen_count: *usize,
+) void {
+    // Skip if already transpiled
+    if (isAlreadySeen(func_name, seen[0..seen_count.*], seen_count.*)) {
+        return;
+    }
+    
+    // Mark as seen
+    if (seen_count.* < 64) {
+        seen[seen_count.*] = func_name;
+        seen_count.* += 1;
+    }
+    
+    // Find and transpile the function
+    const root_decls = tree.rootDecls();
+    const node_tags = tree.nodes.items(.tag);
+    const node_data = tree.nodes.items(.data);
+    const main_tokens = tree.nodes.items(.main_token);
+    
+    var fn_proto_idx: std.zig.Ast.Node.Index = 0;
+    var fn_body_idx: std.zig.Ast.Node.Index = 0;
+    var found = false;
+    
+    for (root_decls) |decl_idx| {
+        if (node_tags[decl_idx] == .fn_decl) {
+            const proto_idx = node_data[decl_idx].lhs;
+            const body_idx = node_data[decl_idx].rhs;
+            const fn_proto_main_token = main_tokens[proto_idx];
+            const fn_name_slice = tree.tokenSlice(fn_proto_main_token);
+            
+            if (std.mem.eql(u8, fn_name_slice, func_name)) {
+                fn_proto_idx = proto_idx;
+                fn_body_idx = body_idx;
+                found = true;
+                break;
+            }
+        }
+    }
+    
+    if (!found) {
+        return;
+    }
+    
+    // Get function body statements
+    const body_stmts = analyzeBlockNode(tree, fn_body_idx);
+    
+    // Extract dependencies from the body
+    extractDependencies(tree, fn_body_idx, functions, func_count, seen, seen_count);
+    
+    // Add this function to the list
+    if (func_count.* < 64) {
+        const params: [0][]const u8 = undefined;
+        functions[func_count.*] = .{
+            .function_decl = .{
+                .name = func_name,
+                .params = &params,
+                .body = body_stmts,
+            },
+        };
+        func_count.* += 1;
+    }
+}
+
+fn extractDependencies(
+    comptime tree: *const std.zig.Ast,
+    comptime block_idx: std.zig.Ast.Node.Index,
+    comptime functions: *[64]js.JsStatement,
+    comptime func_count: *usize,
+    comptime seen: *[64][]const u8,
+    comptime seen_count: *usize,
+) void {
+    // Extract function calls from a block node and recursively transpile them
+    const node_tags = tree.nodes.items(.tag);
+    const node_data = tree.nodes.items(.data);
+    
+    const tag = node_tags[block_idx];
+    
+    if (tag == .block or tag == .block_semicolon) {
+        const block_stmts = tree.extra_data[node_data[block_idx].lhs..node_data[block_idx].rhs];
+        for (block_stmts) |stmt_idx| {
+            extractCallsFromStatement(tree, stmt_idx, functions, func_count, seen, seen_count);
+        }
+    } else if (tag == .block_two or tag == .block_two_semicolon) {
+        if (node_data[block_idx].lhs != 0) {
+            extractCallsFromStatement(tree, node_data[block_idx].lhs, functions, func_count, seen, seen_count);
+        }
+        if (node_data[block_idx].rhs != 0) {
+            extractCallsFromStatement(tree, node_data[block_idx].rhs, functions, func_count, seen, seen_count);
+        }
+    }
+}
+
+fn extractCallsFromStatement(
+    comptime tree: *const std.zig.Ast,
+    comptime stmt_idx: std.zig.Ast.Node.Index,
+    comptime functions: *[64]js.JsStatement,
+    comptime func_count: *usize,
+    comptime seen: *[64][]const u8,
+    comptime seen_count: *usize,
+) void {
+    const node_tags = tree.nodes.items(.tag);
+    const node_data = tree.nodes.items(.data);
+    
+    const tag = node_tags[stmt_idx];
+    
+    // For local_const_decl and local_var_decl, check the init expression
+    if (tag == .local_const_decl or tag == .local_var_decl) {
+        const init_node = node_data[stmt_idx].rhs;
+        if (init_node != 0) {
+            extractCallsFromExpression(tree, init_node, functions, func_count, seen, seen_count);
+        }
+    } else if (tag == .call or tag == .call_one) {
+        // Direct function call
+        extractCallsFromExpression(tree, stmt_idx, functions, func_count, seen, seen_count);
+    } else if (tag == .@"if" or tag == .if_simple) {
+        // Recursively check if bodies
+        const body_idx = node_data[stmt_idx].rhs;
+        extractDependencies(tree, body_idx, functions, func_count, seen, seen_count);
+    } else if (tag == .@"while" or tag == .while_simple) {
+        // Recursively check while bodies
+        const body_idx = node_data[stmt_idx].rhs;
+        extractDependencies(tree, body_idx, functions, func_count, seen, seen_count);
+    }
+}
+
+fn extractCallsFromExpression(
+    comptime tree: *const std.zig.Ast,
+    comptime expr_idx: std.zig.Ast.Node.Index,
+    comptime functions: *[64]js.JsStatement,
+    comptime func_count: *usize,
+    comptime seen: *[64][]const u8,
+    comptime seen_count: *usize,
+) void {
+    const node_tags = tree.nodes.items(.tag);
+    const node_data = tree.nodes.items(.data);
+    const main_tokens = tree.nodes.items(.main_token);
+    
+    const tag = node_tags[expr_idx];
+    
+    // For function calls, get the function name
+    if (tag == .call or tag == .call_one) {
+        // lhs is the function expression
+        const func_expr_idx = node_data[expr_idx].lhs;
+        const func_expr_tag = node_tags[func_expr_idx];
+        
+        if (func_expr_tag == .identifier) {
+            const called_name = tree.tokenSlice(main_tokens[func_expr_idx]);
+            // Recursively transpile this function
+            transpilesWithDepsRecursive(tree, called_name, functions, func_count, seen, seen_count);
+        }
+    }
 }
 
 fn analyzeBlockNode(comptime tree: *const std.zig.Ast, comptime block_idx: std.zig.Ast.Node.Index) []const js.JsStatement {

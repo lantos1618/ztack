@@ -4,7 +4,6 @@ const js_gen = @import("js_gen");
 const js_reflect = @import("js_reflect");
 const dom = @import("dom");
 const zap = @import("zap");
-const js = @import("js");
 
 // Function that will be reflected to JavaScript
 fn handleClick() void {
@@ -49,21 +48,115 @@ pub fn generateHtml(allocator: std.mem.Allocator) ![]const u8 {
         html.Element.script("https://cdn.tailwindcss.com", true),
     };
 
-    // Convert Zig functions to JavaScript
-    const click_handler_body = js_reflect.toJsBody(handleClick, "handleClick");
-    const setup_body = js_reflect.toJsBody(setupListeners, "setupListeners");
-
-    // Create JavaScript function strings
+    // Manually construct JavaScript function bodies
+    // (Zig doesn't support AST reflection on function bodies, so we build the JS AST manually)
+    
+    // handleClick function body
+    const click_handler_stmts = [_]js_gen.JsStatement{
+        .{ .const_decl = .{
+            .name = "counter",
+            .value = .{ .method_call = .{
+                .object = &js_gen.JsExpression{ .identifier = "document" },
+                .method = "querySelector",
+                .args = &[_]js_gen.JsExpression{
+                    .{ .value = .{ .string = "#counter" } },
+                },
+            } },
+        } },
+        .{ .const_decl = .{
+            .name = "count_str",
+            .value = .{ .property_access = .{
+                .object = &js_gen.JsExpression{ .identifier = "counter" },
+                .property = "innerText",
+            } },
+        } },
+        .{ .const_decl = .{
+            .name = "count",
+            .value = .{ .function_call = .{
+                .function = &js_gen.JsExpression{ .identifier = "parseInt" },
+                .args = &[_]js_gen.JsExpression{
+                    .{ .identifier = "count_str" },
+                    .{ .value = .{ .number = 10 } },
+                },
+            } },
+        } },
+        .{ .const_decl = .{
+            .name = "new_count",
+            .value = .{ .binary_op = .{
+                .left = &js_gen.JsExpression{ .identifier = "count" },
+                .operator = "+",
+                .right = &js_gen.JsExpression{ .value = .{ .number = 1 } },
+            } },
+        } },
+        .{ .assign = .{
+            .target = "counter.innerText",
+            .value = .{ .identifier = "new_count" },
+        } },
+        .{ .if_stmt = .{
+            .condition = .{ .binary_op = .{
+                .left = &js_gen.JsExpression{ .identifier = "new_count" },
+                .operator = "==",
+                .right = &js_gen.JsExpression{ .value = .{ .number = 10 } },
+            } },
+            .body = &[_]js_gen.JsStatement{
+                .{ .expression = .{ .method_call = .{
+                    .object = &js_gen.JsExpression{ .identifier = "window" },
+                    .method = "alert",
+                    .args = &[_]js_gen.JsExpression{
+                        .{ .value = .{ .string = "You've clicked 10 times! Keep going!" } },
+                    },
+                } } },
+            },
+            .else_body = null,
+        } },
+    };
+    
     var click_handler_str = std.ArrayList(u8).init(allocator);
     defer click_handler_str.deinit();
-    for (click_handler_body) |stmt| {
+    for (click_handler_stmts) |stmt| {
         try click_handler_str.writer().print("{s}\n", .{stmt.toString()});
     }
 
+    // setupListeners function body
+    const setup_stmts = [_]js_gen.JsStatement{
+        .{ .const_decl = .{
+            .name = "button",
+            .value = .{ .method_call = .{
+                .object = &js_gen.JsExpression{ .identifier = "document" },
+                .method = "querySelector",
+                .args = &[_]js_gen.JsExpression{
+                    .{ .value = .{ .string = "#clickButton" } },
+                },
+            } },
+        } },
+        .{ .expression = .{ .method_call = .{
+            .object = &js_gen.JsExpression{ .identifier = "button" },
+            .method = "addEventListener",
+            .args = &[_]js_gen.JsExpression{
+                .{ .value = .{ .string = "click" } },
+                .{ .identifier = "handleClick" },
+            },
+        } } },
+    };
+    
     var setup_str = std.ArrayList(u8).init(allocator);
     defer setup_str.deinit();
-    for (setup_body) |stmt| {
+    for (setup_stmts) |stmt| {
         try setup_str.writer().print("{s}\n", .{stmt.toString()});
+    }
+
+    // initPage function body
+    const init_stmts = [_]js_gen.JsStatement{
+        .{ .expression = .{ .function_call = .{
+            .function = &js_gen.JsExpression{ .identifier = "setupListeners" },
+            .args = &[_]js_gen.JsExpression{},
+        } } },
+    };
+    
+    var init_str = std.ArrayList(u8).init(allocator);
+    defer init_str.deinit();
+    for (init_stmts) |stmt| {
+        try init_str.writer().print("{s}\n", .{stmt.toString()});
     }
 
     const js_functions = [_]html.JsFunction{
@@ -80,7 +173,7 @@ pub fn generateHtml(allocator: std.mem.Allocator) ![]const u8 {
         .{
             .name = "initPage",
             .args = &[_][]const u8{},
-            .body = try allocator.dupe(u8, js_reflect.toJsBody(initPage, "initPage")),
+            .body = try allocator.dupe(u8, init_str.items),
         },
     };
     defer allocator.free(js_functions[0].body);
@@ -164,18 +257,7 @@ pub fn generateHtml(allocator: std.mem.Allocator) ![]const u8 {
                     },
                 ),
                 html.Element.scriptWithFunctions(&js_functions),
-                html.Element.script(js.generateJs(.{
-                    .statements = &[_]js.JsStatement{
-                        .{ .method_call = .{
-                            .object = .{ .identifier = "document" },
-                            .method = "addEventListener",
-                            .args = &[_]js.JsExpression{
-                                .{ .value = .{ .string = "DOMContentLoaded" } },
-                                .{ .identifier = "initPage" },
-                            },
-                        } },
-                    },
-                }), false),
+                html.Element.script("document.addEventListener('DOMContentLoaded', initPage);", false),
             },
         ),
     };
