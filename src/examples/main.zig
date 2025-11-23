@@ -1,7 +1,7 @@
 const std = @import("std");
 const zap = @import("zap");
-const wasm_handler = @import("routes/wasm_example/wasm_handler.zig");
-const index_handler = @import("routes/index.zig");
+const wasm_handler = @import("../routes/wasm_example/wasm_handler.zig");
+const index_handler = @import("../routes/index.zig");
 
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 const gpa_allocator = gpa.allocator();

@@ -11,16 +11,12 @@ pub fn build(b: *std.Build) void {
     });
 
     // Create modules
-    const js_reflect_module = b.addModule("js_reflect", .{
-        .root_source_file = b.path("src/js_reflect.zig"),
-    });
-
     const html_module = b.addModule("html", .{
-        .root_source_file = b.path("src/html.zig"),
+        .root_source_file = b.path("src/modules/html.zig"),
     });
 
     const dom_module = b.addModule("dom", .{
-        .root_source_file = b.path("src/dom.zig"),
+        .root_source_file = b.path("src/modules/dom.zig"),
     });
 
     // Add wasm target
@@ -46,7 +42,7 @@ pub fn build(b: *std.Build) void {
     // Main executable
     const exe = b.addExecutable(.{
         .name = "zig_test",
-        .root_source_file = b.path("src/main.zig"),
+        .root_source_file = b.path("src/examples/main.zig"),
         .target = target,
         .optimize = optimize,
     });
@@ -54,7 +50,6 @@ pub fn build(b: *std.Build) void {
     // Add module dependencies
     exe.root_module.addImport("zap", zap.module("zap"));
     exe.root_module.addImport("html", html_module);
-    exe.root_module.addImport("js_reflect", js_reflect_module);
     exe.root_module.addImport("dom", dom_module);
 
     b.installArtifact(exe);
@@ -72,7 +67,7 @@ pub fn build(b: *std.Build) void {
 
     // Test step
     const exe_unit_tests = b.addTest(.{
-        .root_source_file = b.path("src/main.zig"),
+        .root_source_file = b.path("src/tests/test_ast.zig"),
         .target = target,
         .optimize = optimize,
     });
