@@ -1,41 +1,7 @@
 const std = @import("std");
 const html = @import("html");
-const js_gen = @import("js_gen");
 const js_reflect = @import("js_reflect");
-const dom = @import("dom");
 const zap = @import("zap");
-
-// Function that will be reflected to JavaScript
-fn handleClick() void {
-    // Get current count and increment
-    const counter = dom.querySelector("#counter");
-    const count_str = dom.getInnerText(counter).toString();
-    const count = std.fmt.parseInt(i32, count_str, 10) catch 0;
-    const new_count = count + 1;
-
-    // Update counter text
-    _ = dom.setInnerText(counter, std.fmt.allocPrint(std.heap.page_allocator, "{d}", .{new_count}) catch unreachable);
-
-    // Check for milestone
-    if (new_count == 10) {
-        _ = dom.alert("You've clicked 10 times! Keep going!");
-    } else if (new_count == 50) {
-        _ = dom.alert("Wow! 50 clicks! You're dedicated!");
-    } else if (new_count == 100) {
-        _ = dom.alert("100 CLICKS! You're officially a click master! 🏆");
-    }
-}
-
-// Function that will be reflected to JavaScript
-fn setupListeners() void {
-    const button = dom.querySelector("#clickButton");
-    _ = dom.addEventListener(button, dom.EventType.click.toString(), "handleClick");
-}
-
-// Function that will be reflected to JavaScript
-fn initPage() void {
-    _ = setupListeners();
-}
 
 pub fn generateHtml(allocator: std.mem.Allocator) ![]const u8 {
     var doc = html.HtmlDocument.init(allocator);
@@ -48,132 +14,26 @@ pub fn generateHtml(allocator: std.mem.Allocator) ![]const u8 {
         html.Element.script("https://cdn.tailwindcss.com", true),
     };
 
-    // Manually construct JavaScript function bodies
-    // (Zig doesn't support AST reflection on function bodies, so we build the JS AST manually)
-    
-    // handleClick function body
-    const click_handler_stmts = [_]js_gen.JsStatement{
-        .{ .const_decl = .{
-            .name = "counter",
-            .value = .{ .method_call = .{
-                .object = &js_gen.JsExpression{ .identifier = "document" },
-                .method = "querySelector",
-                .args = &[_]js_gen.JsExpression{
-                    .{ .value = .{ .string = "#counter" } },
-                },
-            } },
-        } },
-        .{ .const_decl = .{
-            .name = "count_str",
-            .value = .{ .property_access = .{
-                .object = &js_gen.JsExpression{ .identifier = "counter" },
-                .property = "innerText",
-            } },
-        } },
-        .{ .const_decl = .{
-            .name = "count",
-            .value = .{ .function_call = .{
-                .function = &js_gen.JsExpression{ .identifier = "parseInt" },
-                .args = &[_]js_gen.JsExpression{
-                    .{ .identifier = "count_str" },
-                    .{ .value = .{ .number = 10 } },
-                },
-            } },
-        } },
-        .{ .const_decl = .{
-            .name = "new_count",
-            .value = .{ .binary_op = .{
-                .left = &js_gen.JsExpression{ .identifier = "count" },
-                .operator = "+",
-                .right = &js_gen.JsExpression{ .value = .{ .number = 1 } },
-            } },
-        } },
-        .{ .assign = .{
-            .target = "counter.innerText",
-            .value = .{ .identifier = "new_count" },
-        } },
-        .{ .if_stmt = .{
-            .condition = .{ .binary_op = .{
-                .left = &js_gen.JsExpression{ .identifier = "new_count" },
-                .operator = "==",
-                .right = &js_gen.JsExpression{ .value = .{ .number = 10 } },
-            } },
-            .body = &[_]js_gen.JsStatement{
-                .{ .expression = .{ .method_call = .{
-                    .object = &js_gen.JsExpression{ .identifier = "window" },
-                    .method = "alert",
-                    .args = &[_]js_gen.JsExpression{
-                        .{ .value = .{ .string = "You've clicked 10 times! Keep going!" } },
-                    },
-                } } },
-            },
-            .else_body = null,
-        } },
-    };
-    
-    var click_handler_str = std.ArrayList(u8).init(allocator);
-    defer click_handler_str.deinit();
-    for (click_handler_stmts) |stmt| {
-        try click_handler_str.writer().print("{s}\n", .{stmt.toString()});
-    }
-
-    // setupListeners function body
-    const setup_stmts = [_]js_gen.JsStatement{
-        .{ .const_decl = .{
-            .name = "button",
-            .value = .{ .method_call = .{
-                .object = &js_gen.JsExpression{ .identifier = "document" },
-                .method = "querySelector",
-                .args = &[_]js_gen.JsExpression{
-                    .{ .value = .{ .string = "#clickButton" } },
-                },
-            } },
-        } },
-        .{ .expression = .{ .method_call = .{
-            .object = &js_gen.JsExpression{ .identifier = "button" },
-            .method = "addEventListener",
-            .args = &[_]js_gen.JsExpression{
-                .{ .value = .{ .string = "click" } },
-                .{ .identifier = "handleClick" },
-            },
-        } } },
-    };
-    
-    var setup_str = std.ArrayList(u8).init(allocator);
-    defer setup_str.deinit();
-    for (setup_stmts) |stmt| {
-        try setup_str.writer().print("{s}\n", .{stmt.toString()});
-    }
-
-    // initPage function body
-    const init_stmts = [_]js_gen.JsStatement{
-        .{ .expression = .{ .function_call = .{
-            .function = &js_gen.JsExpression{ .identifier = "setupListeners" },
-            .args = &[_]js_gen.JsExpression{},
-        } } },
-    };
-    
-    var init_str = std.ArrayList(u8).init(allocator);
-    defer init_str.deinit();
-    for (init_stmts) |stmt| {
-        try init_str.writer().print("{s}\n", .{stmt.toString()});
-    }
+    // Transpile handler functions from Zig to JavaScript at compile-time
+    const click_handler_str = js_reflect.transpiledFunction("handleClick");
+    const setup_str = js_reflect.transpiledFunction("setupListeners");
+    const init_str = js_reflect.transpiledFunction("initPage");
 
     const js_functions = [_]html.JsFunction{
         .{
             .name = "handleClick",
             .args = &[_][]const u8{},
-            .body = try allocator.dupe(u8, click_handler_str.items),
+            .body = try allocator.dupe(u8, click_handler_str),
         },
         .{
             .name = "setupListeners",
             .args = &[_][]const u8{},
-            .body = try allocator.dupe(u8, setup_str.items),
+            .body = try allocator.dupe(u8, setup_str),
         },
         .{
             .name = "initPage",
             .args = &[_][]const u8{},
-            .body = try allocator.dupe(u8, init_str.items),
+            .body = try allocator.dupe(u8, init_str),
         },
     };
     defer allocator.free(js_functions[0].body);

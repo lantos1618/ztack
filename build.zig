@@ -11,29 +11,17 @@ pub fn build(b: *std.Build) void {
     });
 
     // Create modules
-    const js_gen_module = b.addModule("js_gen", .{
-        .root_source_file = b.path("src/js_gen.zig"),
-    });
-
-    const zig_parser_module = b.addModule("zig_parser", .{
-        .root_source_file = b.path("src/zig_parser.zig"),
-    });
-
     const js_reflect_module = b.addModule("js_reflect", .{
         .root_source_file = b.path("src/js_reflect.zig"),
     });
-    js_reflect_module.addImport("js_gen", js_gen_module);
-    js_reflect_module.addImport("zig_parser", zig_parser_module);
 
     const html_module = b.addModule("html", .{
         .root_source_file = b.path("src/html.zig"),
     });
-    html_module.addImport("js_reflect", js_reflect_module);
 
     const dom_module = b.addModule("dom", .{
         .root_source_file = b.path("src/dom.zig"),
     });
-    dom_module.addImport("js_gen", js_gen_module);
 
     // Add wasm target
     const wasm_target = .{
@@ -66,7 +54,6 @@ pub fn build(b: *std.Build) void {
     // Add module dependencies
     exe.root_module.addImport("zap", zap.module("zap"));
     exe.root_module.addImport("html", html_module);
-    exe.root_module.addImport("js_gen", js_gen_module);
     exe.root_module.addImport("js_reflect", js_reflect_module);
     exe.root_module.addImport("dom", dom_module);
 
