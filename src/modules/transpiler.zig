@@ -1,22 +1,61 @@
 const std = @import("std");
 const js = @import("js");
 
+/// Zig Script subset validator
+/// Tracks unsupported constructs found during transpilation
+pub const ScriptValidator = struct {
+    allocator: std.mem.Allocator,
+    warnings: std.ArrayList([]const u8),
+
+    pub fn init(allocator: std.mem.Allocator) ScriptValidator {
+        return .{
+            .allocator = allocator,
+            .warnings = std.ArrayList([]const u8).init(allocator),
+        };
+    }
+
+    pub fn deinit(self: *ScriptValidator) void {
+        for (self.warnings.items) |warning| {
+            self.allocator.free(warning);
+        }
+        self.warnings.deinit();
+    }
+
+    pub fn warn(self: *ScriptValidator, message: []const u8) !void {
+        const msg_copy = try self.allocator.dupe(u8, message);
+        try self.warnings.append(msg_copy);
+    }
+
+    pub fn printWarnings(self: ScriptValidator) void {
+        if (self.warnings.items.len == 0) {
+            return;
+        }
+        std.debug.print("\n⚠️  Transpiler Warnings ({} unsupported constructs found):\n", .{self.warnings.items.len});
+        for (self.warnings.items) |warning| {
+            std.debug.print("  - {s}\n", .{warning});
+        }
+    }
+};
+
 pub const Transpiler = struct {
     allocator: std.mem.Allocator,
     tree: std.zig.Ast,
-    source: []const u8,
+    source: [:0]const u8,
+    validator: ScriptValidator,
 
-    pub fn init(allocator: std.mem.Allocator, source: []const u8) !Transpiler {
+    pub fn init(allocator: std.mem.Allocator, source: [:0]const u8) !Transpiler {
         const tree = try std.zig.Ast.parse(allocator, source, .zig);
         return .{
             .allocator = allocator,
             .tree = tree,
             .source = source,
+            .validator = ScriptValidator.init(allocator),
         };
     }
 
     pub fn deinit(self: *Transpiler) void {
         self.tree.deinit(self.allocator);
+        self.validator.deinit();
     }
 
     /// Convert Zig AST to JavaScript statements
@@ -62,6 +101,22 @@ pub const Transpiler = struct {
         const fn_name_token = fn_proto_main_token + 1;
         const fn_name = self.tree.tokenSlice(fn_name_token);
 
+        // Check for function parameters (not yet supported)
+        const fn_proto_data = self.tree.nodes.items(.data)[fn_proto_idx];
+        const fn_proto_tag = node_tags[fn_proto_idx];
+        
+        // If this is a function proto with parameters, warn
+        if (fn_proto_tag == .fn_proto) {
+            const proto_lhs = fn_proto_data.lhs;
+            const proto_rhs = fn_proto_data.rhs;
+            if (proto_rhs > proto_lhs and proto_lhs != 0) {
+                // Has parameters
+                const warning = try std.fmt.allocPrint(self.allocator, "Function '{s}' has parameters, which are not yet supported and will be ignored", .{fn_name});
+                try self.validator.warn(warning);
+                self.allocator.free(warning);
+            }
+        }
+
         // Get function body statements
         var body_statements = std.ArrayList(js.JsStatement).init(self.allocator);
         defer body_statements.deinit();
@@ -74,7 +129,7 @@ pub const Transpiler = struct {
             if (rhs > lhs) {
                 const block_stmts = self.tree.extra_data[lhs..rhs];
                 for (block_stmts) |stmt_idx| {
-                    if (try self.transpileStmt(stmt_idx)) |stmt| {
+                    if (self.transpileStmt(stmt_idx)) |stmt| {
                         try body_statements.append(stmt);
                     }
                 }
@@ -91,20 +146,20 @@ pub const Transpiler = struct {
         };
     }
 
-    fn transpileStmt(self: *Transpiler, stmt_idx: u32) !?js.JsStatement {
+    fn transpileStmt(self: *Transpiler, stmt_idx: u32) ?js.JsStatement {
         const node_tags = self.tree.nodes.items(.tag);
 
         const tag = node_tags[stmt_idx];
 
         switch (tag) {
             .simple_var_decl => {
-                return try self.transpileVarDecl(stmt_idx);
+                return self.transpileVarDecl(stmt_idx) catch null;
             },
             .assign => {
-                return try self.transpileAssign(stmt_idx);
+                return self.transpileAssign(stmt_idx) catch null;
             },
             .if_simple => {
-                return try self.transpileIf(stmt_idx);
+                return self.transpileIf(stmt_idx) catch null;
             },
             else => {
                 return null;
@@ -121,7 +176,7 @@ pub const Transpiler = struct {
         const name = self.tree.tokenSlice(name_token);
 
         const init_idx = node_data[decl_idx].rhs;
-        const value = try self.transpileExpr(init_idx) orelse js.JsExpression{ .value = .{ .undefined = {} } };
+        const value = self.transpileExpr(init_idx) orelse js.JsExpression{ .value = .{ .undefined = {} } };
 
         return js.JsStatement{
             .var_decl = .{
@@ -136,8 +191,8 @@ pub const Transpiler = struct {
         const lhs_idx = node_data[assign_idx].lhs;
         const rhs_idx = node_data[assign_idx].rhs;
 
-        const lhs = try self.transpileExpr(lhs_idx) orelse return null;
-        const rhs = try self.transpileExpr(rhs_idx) orelse js.JsExpression{ .value = .{ .undefined = {} } };
+        const lhs = self.transpileExpr(lhs_idx) orelse return null;
+        const rhs = self.transpileExpr(rhs_idx) orelse js.JsExpression{ .value = .{ .undefined = {} } };
 
         // Extract target name from expression
         const target = switch (lhs) {
@@ -160,7 +215,7 @@ pub const Transpiler = struct {
         const condition_idx = node_data[if_idx].lhs;
         const body_idx = node_data[if_idx].rhs;
 
-        const condition = try self.transpileExpr(condition_idx) orelse js.JsExpression{ .value = .{ .boolean = false } };
+        const condition = self.transpileExpr(condition_idx) orelse js.JsExpression{ .value = .{ .boolean = false } };
 
         var body_statements = std.ArrayList(js.JsStatement).init(self.allocator);
         defer body_statements.deinit();
@@ -173,7 +228,7 @@ pub const Transpiler = struct {
             if (rhs > lhs) {
                 const block_stmts = self.tree.extra_data[lhs..rhs];
                 for (block_stmts) |stmt_idx| {
-                    if (try self.transpileStmt(stmt_idx)) |stmt| {
+                    if (self.transpileStmt(stmt_idx)) |stmt| {
                         try body_statements.append(stmt);
                     }
                 }
@@ -190,7 +245,7 @@ pub const Transpiler = struct {
         };
     }
 
-    fn transpileExpr(self: *Transpiler, expr_idx: u32) !?js.JsExpression {
+    fn transpileExpr(self: *Transpiler, expr_idx: u32) ?js.JsExpression {
         const node_tags = self.tree.nodes.items(.tag);
         const main_tokens = self.tree.nodes.items(.main_token);
 
@@ -200,7 +255,7 @@ pub const Transpiler = struct {
             .number_literal => {
                 const token = main_tokens[expr_idx];
                 const slice = self.tree.tokenSlice(token);
-                const num = try std.fmt.parseInt(i32, slice, 10);
+                const num = std.fmt.parseInt(i32, slice, 10) catch 0;
                 return js.JsExpression{ .value = .{ .number = num } };
             },
             .string_literal => {
@@ -211,11 +266,15 @@ pub const Transpiler = struct {
             .identifier => {
                 const token = main_tokens[expr_idx];
                 const slice = self.tree.tokenSlice(token);
+                
+                // Check if this is a boolean literal (true/false as identifiers)
+                if (std.mem.eql(u8, slice, "true")) {
+                    return js.JsExpression{ .value = .{ .boolean = true } };
+                } else if (std.mem.eql(u8, slice, "false")) {
+                    return js.JsExpression{ .value = .{ .boolean = false } };
+                }
+                
                 return js.JsExpression{ .identifier = slice };
-            },
-            .bool_one, .bool_zero => {
-                const value = tag == .bool_one;
-                return js.JsExpression{ .value = .{ .boolean = value } };
             },
             else => {
                 return null;
