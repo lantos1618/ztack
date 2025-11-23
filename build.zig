@@ -23,6 +23,10 @@ pub fn build(b: *std.Build) void {
     });
     symbol_map_module.addImport("js", js_module);
 
+    const router_module = b.addModule("router", .{
+        .root_source_file = b.path("src/modules/router.zig"),
+    });
+
     const transpiler_module = b.addModule("transpiler", .{
         .root_source_file = b.path("src/modules/transpiler.zig"),
     });
@@ -136,6 +140,38 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_exe_unit_tests.step);
     test_step.dependOn(&run_transpiler_test.step);
     test_step.dependOn(&run_transpiler_fixes_test.step);
+
+    // Router example server
+    const router_server_exe = b.addExecutable(.{
+        .name = "router_server",
+        .root_source_file = b.path("src/examples/router_server.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    router_server_exe.root_module.addImport("html", html_module);
+    router_server_exe.root_module.addImport("router", router_module);
+    b.installArtifact(router_server_exe);
+
+    const run_router_server = b.addRunArtifact(router_server_exe);
+    const router_step = b.step("router", "Run the router example server");
+    router_step.dependOn(&run_router_server.step);
+
+    // Improved counter example
+    const improved_counter_exe = b.addExecutable(.{
+        .name = "improved_counter",
+        .root_source_file = b.path("src/examples/improved_counter.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    improved_counter_exe.root_module.addImport("html", html_module);
+    improved_counter_exe.root_module.addImport("js", js_module);
+    improved_counter_exe.root_module.addImport("router", router_module);
+    improved_counter_exe.root_module.addImport("transpiler", transpiler_module);
+    b.installArtifact(improved_counter_exe);
+
+    const run_improved_counter = b.addRunArtifact(improved_counter_exe);
+    const improved_step = b.step("improved", "Run the improved counter server");
+    improved_step.dependOn(&run_improved_counter.step);
 
     // WASM counter test
     const run_wasm_counter = b.addRunArtifact(wasm_server_exe);

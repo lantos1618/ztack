@@ -204,19 +204,37 @@ pub const Transpiler = struct {
         const main_tokens = self.tree.nodes.items(.main_token);
 
         const main_token = main_tokens[decl_idx];
+        const token_tag = self.tree.tokens.items(.tag)[main_token];
+        
+        // Determine if const or var
+        const is_const = switch (token_tag) {
+            .keyword_const => true,
+            .keyword_var => false,
+            else => false,
+        };
+
         const name_token = main_token + 1;
         const name = self.tree.tokenSlice(name_token);
 
         const init_idx = node_data[decl_idx].rhs;
         const value = self.transpileExpr(init_idx) orelse js.JsExpression{ .value = .{ .undefined = {} } };
 
-        // Use let_decl for Zig var (mutable) declarations
-        return js.JsStatement{
-            .let_decl = .{
-                .name = name,
-                .value = value,
-            },
-        };
+        // Use const_decl for Zig const, let_decl for Zig var
+        if (is_const) {
+            return js.JsStatement{
+                .const_decl = .{
+                    .name = name,
+                    .value = value,
+                },
+            };
+        } else {
+            return js.JsStatement{
+                .let_decl = .{
+                    .name = name,
+                    .value = value,
+                },
+            };
+        }
     }
 
     fn transpileAssign(self: *Transpiler, assign_idx: u32) !?js.JsStatement {
@@ -408,11 +426,24 @@ pub const Transpiler = struct {
 
     fn transpileExpr(self: *Transpiler, expr_idx: u32) ?js.JsExpression {
         const node_tags = self.tree.nodes.items(.tag);
-        const node_data = self.tree.nodes.items(.data);
         const main_tokens = self.tree.nodes.items(.main_token);
-        _ = node_data;
 
         const tag = node_tags[expr_idx];
+
+        // Check for unsupported constructs
+        switch (tag) {
+            .ptr_type => {
+                const warning = std.fmt.allocPrint(self.arena, "Pointers are not supported in Zig Script", .{}) catch return null;
+                self.validator.warn(warning) catch self.arena.free(warning);
+                return null;
+            },
+            .builtin_call => {
+                const warning = std.fmt.allocPrint(self.arena, "Builtin calls are not supported in Zig Script", .{}) catch return null;
+                self.validator.warn(warning) catch self.arena.free(warning);
+                return null;
+            },
+            else => {},
+        }
 
         switch (tag) {
             .number_literal => {

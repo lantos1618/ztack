@@ -1,8 +1,8 @@
 const std = @import("std");
 
 /// Escape HTML special characters to prevent XSS attacks
-fn escapeHtml(writer: anytype, text: []const u8) !void {
-    for (text) |char| {
+fn escapeHtml(writer: anytype, content: []const u8) !void {
+    for (content) |char| {
         switch (char) {
             '&' => try writer.writeAll("&amp;"),
             '<' => try writer.writeAll("&lt;"),
@@ -90,6 +90,7 @@ pub const Element = union(enum) {
         class: ?[]const u8 = null,
         id: ?[]const u8 = null,
         onclick: ?[]const u8 = null,
+        data_on: ?[]const u8 = null, // e.g., "click:handleClick"
     };
 
     // Helper functions - moved outside union to avoid name conflicts
@@ -220,6 +221,9 @@ pub const Element = union(enum) {
                 if (b.onclick) |onclick| {
                     try writer.print(" onclick=\"{s}\"", .{onclick});
                 }
+                if (b.data_on) |data_on| {
+                    try writer.print(" data-on=\"{s}\"", .{data_on});
+                }
                 try writer.writeAll(">\n");
                 for (b.children) |child| {
                     try child.toString(writer, indent + 2);
@@ -228,17 +232,17 @@ pub const Element = union(enum) {
                 try writer.writeByteNTimes(' ', indent);
                 try writer.writeAll("</button>");
             },
-            .p => |p| {
+            .p => |para| {
                 try writer.writeByteNTimes(' ', indent);
                 try writer.writeAll("<p");
-                if (p.class) |class| {
+                if (para.class) |class| {
                     try writer.print(" class=\"{s}\"", .{class});
                 }
-                if (p.id) |id| {
+                if (para.id) |id| {
                     try writer.print(" id=\"{s}\"", .{id});
                 }
                 try writer.writeAll(">\n");
-                for (p.children) |child| {
+                for (para.children) |child| {
                     try child.toString(writer, indent + 2);
                     try writer.writeByte('\n');
                 }
@@ -287,6 +291,24 @@ pub const Element = union(enum) {
     }
 };
 
+/// Event delegation helper JavaScript code
+/// Insert this in your <head> or early in <script> to enable data-on attributes
+pub const EVENT_DELEGATION_SCRIPT = 
+    \\// Event delegation handler
+    \\(function() {
+    \\  document.body.addEventListener('click', function(e) {
+    \\    var target = e.target.closest('[data-on]');
+    \\    if (!target) return;
+    \\    var parts = target.dataset.on.split(':');
+    \\    var event = parts[0];
+    \\    var handler = parts[1];
+    \\    if (e.type === event && window[handler]) {
+    \\      window[handler](e);
+    \\    }
+    \\  });
+    \\})();
+;
+
 // Element helper methods as namespace functions  
 pub fn text(content: []const u8) Element {
     return .{ .text = content };
@@ -309,6 +331,34 @@ pub fn h1(class: ?[]const u8, children: []const Element) Element {
 
 pub fn h2(class: ?[]const u8, children: []const Element) Element {
     return .{ .h2 = .{ .class = class, .children = children } };
+}
+
+pub fn p(class: ?[]const u8, children: []const Element) Element {
+    return .{ .p = .{ .class = class, .children = children } };
+}
+
+pub fn button(class: ?[]const u8, onclick: ?[]const u8, children: []const Element) Element {
+    return .{ .button = .{ .class = class, .onclick = onclick, .children = children } };
+}
+
+pub fn button_data(class: ?[]const u8, data_on: ?[]const u8, children: []const Element) Element {
+    return .{ .button = .{ .class = class, .data_on = data_on, .children = children } };
+}
+
+pub fn input(input_type: []const u8, id: ?[]const u8, class: ?[]const u8) Element {
+    return .{ .input = .{ .type = input_type, .id = id, .class = class } };
+}
+
+pub fn input_with_value(input_type: []const u8, id: ?[]const u8, value: ?[]const u8) Element {
+    return .{ .input = .{ .type = input_type, .id = id, .value = value } };
+}
+
+pub fn anchor(href: []const u8, class: ?[]const u8, children: []const Element) Element {
+    return .{ .a = .{ .href = href, .class = class, .children = children } };
+}
+
+pub fn span(class: ?[]const u8, children: []const Element) Element {
+    return .{ .span = .{ .class = class, .children = children } };
 }
 
 pub fn script(src_or_content: []const u8, is_src: bool) Element {
@@ -346,26 +396,31 @@ pub const HtmlDocument = struct {
         var result = std.ArrayList(u8).init(self.allocator);
         errdefer result.deinit();
 
-        try result.appendSlice("<!DOCTYPE html>\n<html>\n");
-
-        // Head
-        try result.appendSlice("<head>\n");
-        for (head) |elem| {
-            try elem.toString(result.writer(), 2);
-            try result.appendSlice("\n");
-        }
-        try result.appendSlice("</head>\n");
-
-        // Body
-        try result.appendSlice("<body>\n");
-        for (body) |elem| {
-            try elem.toString(result.writer(), 2);
-            try result.appendSlice("\n");
-        }
-        try result.appendSlice("</body>\n");
-
-        try result.appendSlice("</html>");
+        try self.renderToWriter(result.writer(), head, body);
 
         return result.toOwnedSlice();
+    }
+
+    /// Renders HTML directly to a writer without allocating intermediate strings
+    pub fn renderToWriter(_: *Self, writer: anytype, head: []const Element, body: []const Element) !void {
+        try writer.writeAll("<!DOCTYPE html>\n<html>\n");
+
+        // Head
+        try writer.writeAll("<head>\n");
+        for (head) |elem| {
+            try elem.toString(writer, 2);
+            try writer.writeAll("\n");
+        }
+        try writer.writeAll("</head>\n");
+
+        // Body
+        try writer.writeAll("<body>\n");
+        for (body) |elem| {
+            try elem.toString(writer, 2);
+            try writer.writeAll("\n");
+        }
+        try writer.writeAll("</body>\n");
+
+        try writer.writeAll("</html>");
     }
 };
